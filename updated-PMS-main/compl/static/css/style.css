@@ -1,0 +1,451 @@
+/* Balanced Black & White UI Styles */
+:root {
+    --primary: #333333;
+    --primary-dark: #000000;
+    --secondary: #888888;
+    --success: #2e8540;
+    --danger: #c41e3a;
+    --warning: #f1c21b;
+    --light: #FFFFFF;
+    --dark: #333333;
+    --darker: #222222;
+    --darkest: #111111;
+    --gray: #888888;
+    --border: #dddddd;
+    --radius: 8px;
+    --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* General Styles */
+body {
+    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: var(--light);
+    color: var(--dark);
+    line-height: 1.6;
+}
+
+/* Container */
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+/* Header */
+header {
+    background-color: var(--light);
+    color: var(--dark);
+    padding: 1rem 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: var(--shadow);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    border-bottom: 1px solid var(--border);
+}
+
+header .logo img {
+    height: 40px;
+}
+
+nav ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+}
+
+nav ul li {
+    margin-left: 1.5rem;
+}
+
+nav ul li a {
+    color: var(--dark);
+    text-decoration: none;
+    font-weight: 500;
+    padding: 0.5rem 0;
+    position: relative;
+}
+
+nav ul li a:after {
+    content: '';
+    position: absolute;
+    width: 0;
+    height: 2px;
+    bottom: 0;
+    left: 0;
+    background-color: var(--primary);
+}
+
+nav ul li a:hover {
+    color: var(--primary);
+}
+
+nav ul li a:hover:after {
+    width: 100%;
+}
+
+/* Main Content */
+main {
+    padding: 2rem 0;
+    min-height: calc(100vh - 130px);
+}
+
+/* Footer */
+footer {
+    background-color: var(--light);
+    color: var(--secondary);
+    text-align: center;
+    padding: 1.5rem;
+    box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.05);
+    margin-top: 2rem;
+    border-top: 1px solid var(--border);
+}
+
+/* Flash Messages */
+.flash-messages {
+    margin-bottom: 1.5rem;
+}
+
+.flash-message {
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.flash-success {
+    background-color: rgba(46, 133, 64, 0.1);
+    color: #2e8540;
+    border: 1px solid rgba(46, 133, 64, 0.2);
+}
+
+.flash-error {
+    background-color: rgba(196, 30, 58, 0.1);
+    color: #c41e3a;
+    border: 1px solid rgba(196, 30, 58, 0.2);
+}
+
+.flash-info {
+    background-color: rgba(51, 51, 51, 0.1);
+    color: #333333;
+    border: 1px solid rgba(51, 51, 51, 0.2);
+}
+
+.flash-warning {
+    background-color: rgba(241, 194, 27, 0.1);
+    color: #d4a308;
+    border: 1px solid rgba(241, 194, 27, 0.2);
+}
+
+/* Cards */
+.card {
+    background: var(--light);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    box-shadow: var(--shadow);
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--border);
+}
+
+.card:hover {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+.card h3 {
+    color: var(--primary);
+    margin-top: 0;
+    font-weight: 600;
+}
+
+/* Forms */
+form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+    color: var(--dark);
+}
+
+input, select, textarea {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background-color: var(--light);
+    color: var(--dark);
+    /* transition removed */
+    font-size: 1rem;
+}
+
+input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(51, 51, 51, 0.1);
+}
+
+::placeholder {
+    color: var(--secondary);
+    opacity: 0.7;
+}
+
+/* Buttons */
+.btn {
+    display: inline-block;
+    padding: 0.75rem 1.5rem;
+    background-color: var(--primary);
+    color: var(--light);
+    border: none;
+    border-radius: var(--radius);
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+    /* transition removed */
+    text-align: center;
+}
+
+.btn:hover {
+    background-color: var(--primary-dark);
+    /* transform removed */
+}
+
+.btn:active {
+    background-color: var(--primary-dark);  /* Maintain active state style without animation */
+}
+
+.btn-outline {
+    background-color: transparent;
+    border: 1px solid var(--primary);
+    color: var(--primary);
+}
+
+.btn-outline:hover {
+    background-color: var(--primary);
+    color: var(--light);
+}
+
+.btn-danger {
+    background-color: var(--danger);
+    border-color: var(--danger);
+    color: var(--light);
+}
+
+.btn-danger:hover {
+    background-color: #a01a2e;
+    border-color: #a01a2e;
+}
+
+.btn-success {
+    background-color: var(--success);
+    border-color: var(--success);
+    color: var(--light);
+}
+
+.btn-success:hover {
+    background-color: #206b30;
+    border-color: #206b30;
+}
+
+.btn-sm {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+}
+
+/* Tables */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1.5rem;
+    background-color: var(--light);
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 1px solid var(--border);
+}
+
+th, td {
+    padding: 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+th {
+    background-color: #f5f5f5;
+    font-weight: 600;
+    color: var(--dark);
+}
+
+tr:last-child td {
+    border-bottom: none;
+}
+
+tr:hover {
+    background-color: rgba(51, 51, 51, 0.03);
+}
+
+/* Status Styles */
+.status-pending {
+    color: var(--warning);
+    font-weight: 500;
+}
+
+.status-cancelled {
+    color: var(--danger);
+    font-weight: 500;
+}
+
+.status-available, .status-confirmed, .status-paid {
+    color: var(--success);
+    font-weight: 500;
+}
+
+.status-occupied, .status-unpaid {
+    color: var(--danger);
+    font-weight: 500;
+}
+
+/* Grid Utilities */
+.grid {
+    display: grid;
+    gap: 1.5rem;
+}
+
+.grid-cols-1 {
+    grid-template-columns: repeat(1, 1fr);
+}
+
+@media (min-width: 768px) {
+    .md\:grid-cols-2 {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .md\:grid-cols-3 {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    
+    .md\:grid-cols-4 {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+/* Flex Utilities */
+.flex {
+    display: flex;
+}
+
+.flex-col {
+    flex-direction: column;
+}
+
+.items-center {
+    align-items: center;
+}
+
+.justify-center {
+    justify-content: center;
+}
+
+.justify-between {
+    justify-content: space-between;
+}
+
+.gap-4 {
+    gap: 1rem;
+}
+
+/* Spacing */
+.mt-4 {
+    margin-top: 1rem;
+}
+
+.mb-4 {
+    margin-bottom: 1rem;
+}
+
+.p-4 {
+    padding: 1rem;
+}
+
+/* Text Utilities */
+.text-center {
+    text-align: center;
+}
+
+.text-sm {
+    font-size: 0.875rem;
+}
+
+.text-lg {
+    font-size: 1.125rem;
+}
+
+.font-bold {
+    font-weight: 700;
+}
+
+/* Custom Components */
+.booking-card {
+    position: relative;
+    padding-left: 1rem;
+    border-left: 4px solid var(--primary);
+    /* transition removed */
+}
+
+.booking-card:hover {
+    background-color: #f9f9f9;  /* Add a subtle hover effect without animation */
+}
+
+.booking-card.pending {
+    border-left-color: var(--warning);
+}
+
+.booking-card.confirmed {
+    border-left-color: var(--success);
+}
+
+.booking-card.cancelled {
+    border-left-color: var(--danger);
+}
+
+/* Additional Components */
+.tag {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.tag-primary {
+    background-color: rgba(51, 51, 51, 0.1);
+    color: var(--primary);
+}
+
+.tag-success {
+    background-color: rgba(46, 133, 64, 0.1);
+    color: var(--success);
+}
+
+.tag-warning {
+    background-color: rgba(241, 194, 27, 0.1);
+    color: var(--warning);
+}
+
+.tag-danger {
+    background-color: rgba(196, 30, 58, 0.1);
+    color: var(--danger);
+}

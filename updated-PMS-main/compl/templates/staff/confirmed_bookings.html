@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    /* Status badge styles */
+    .status-badge {
+        padding: 4px 8px;
+        border-radius: 4px;
+        display: inline-block;
+        font-size: 0.85em;
+    }
+    
+    .status-confirmed {
+        background-color: #d4edda;
+        color: #155724;
+    }
+    
+    .status-paid {
+        background-color: #d1ecf1;
+        color: #0c5460;
+    }
+    
+    .status-unpaid {
+        background-color: #f8d7da;
+        color: #721c24;
+    }
+    
+    /* Container styles */
+    .dashboard-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+    }
+    
+    .sidebar {
+        flex: 1;
+        min-width: 250px;
+    }
+    
+    .main-content {
+        flex: 3;
+        min-width: 600px;
+    }
+    
+    /* Table styles */
+    .table-container {
+        width: 100%;
+        overflow-x: auto;
+    }
+    
+    .data-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    
+    .data-table th, .data-table td {
+        padding: 10px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+    }
+    
+    .data-table th {
+        background-color: #f2f2f2;
+    }
+    
+    .data-table tbody tr:hover {
+        background-color: #f5f5f5;
+    }
+    
+    /* Button styles */
+    .action-button {
+        padding: 6px 12px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        margin-right: 5px;
+    }
+    
+    .handle-button {
+        background-color: #007bff;
+        color: white;
+    }
+    
+    .detail-button {
+        background-color: #6c757d;
+        color: white;
+        font-size: 0.85em;
+        padding: 3px 8px;
+        margin-left: 5px;
+    }
+    
+    /* Navigation styles */
+    .nav-tabs {
+        display: flex;
+        border-bottom: 1px solid #dee2e6;
+        margin-bottom: 20px;
+    }
+    
+    .nav-link {
+        padding: 10px 15px;
+        border: 1px solid transparent;
+        border-top-left-radius: 4px;
+        border-top-right-radius: 4px;
+        color: #495057;
+        text-decoration: none;
+        margin-bottom: -1px;
+    }
+    
+    .nav-link:hover {
+        border-color: #e9ecef #e9ecef #dee2e6;
+        background-color: #f8f9fa;
+    }
+    
+    .nav-link.active {
+        color: #495057;
+        background-color: #fff;
+        border-color: #dee2e6 #dee2e6 #fff;
+    }
+</style>
+
+<div class="panel">
+    <h2 class="panel-title">Staff Dashboard - Confirmed Bookings</h2>
+    
+    <div class="nav-tabs">
+        <a href="{{ url_for('staff_dashboard') }}" class="nav-link">Dashboard Overview</a>
+        <a href="{{ url_for('staff_dashboard') }}" class="nav-link">Pending Bookings</a>
+        <a href="{{ url_for('staff_confirmed_bookings') }}" class="nav-link active">Confirmed Bookings</a>
+    </div>
+    
+    <div class="dashboard-container">
+        <div class="main-content">
+            <!-- Confirmed Bookings -->
+            <div class="panel">
+                <h3 class="panel-title">All Confirmed Bookings</h3>
+                {% if confirmed_bookings %}
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Booking ID</th>
+                                    <th>User</th>
+                                    <th>Location</th>
+                                    <th>Start Time</th>
+                                    <th>End Time</th>
+                                    <th>Payment</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for booking in confirmed_bookings %}
+                                    <tr>
+                                        <td>{{ booking.booking_id }}</td>
+                                        <td>{{ booking.username }}</td>
+                                        <td>{{ booking.location }}</td>
+                                        <td>{{ booking.start_time }}</td>
+                                        <td>{{ booking.end_time }}</td>
+                                        <td>
+                                            <span class="status-badge status-{{ booking.payment_status }}">{{ booking.payment_status }}</span>
+                                            <button onclick="showPaymentDetails('{{ booking.booking_id }}')" class="detail-button">Details</button>
+                                        </td>
+                                        <td>
+                                            {% if booking.payment_status == 'paid' %}
+                                                <a href="{{ url_for('staff_handle_entry_exit', booking_id=booking.booking_id, action_type='entry', redirect_to='staff_confirmed_bookings') }}" class="action-button handle-button">
+                                                    <span class="icon-margin">🚗</span> Handle Entry/Exit
+                                                </a>
+                                            {% else %}
+                                                <span class="text-muted">Waiting for payment</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p>No confirmed bookings available.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Payment details modal (hidden by default) -->
+<div id="paymentModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closePaymentModal()">&times;</span>
+        <h3>Payment Details</h3>
+        <div id="paymentDetails">
+            Loading payment details...
+        </div>
+    </div>
+</div>
+
+<script>
+function showPaymentDetails(bookingId) {
+    document.getElementById('paymentModal').style.display = 'block';
+    document.getElementById('paymentDetails').innerHTML = 'Loading payment details...';
+    
+    fetch('/api/payment_details/' + bookingId)
+        .then(response => response.json())
+        .then(data => {
+            let html = '<table class="details-table">';
+            if (data.error) {
+                html += '<tr><td colspan="2" class="error-message">' + data.error + '</td></tr>';
+            } else {
+                html += '<tr><td>Transaction ID:</td><td>' + (data.transaction_id || 'N/A') + '</td></tr>';
+                html += '<tr><td>Payment Method:</td><td>' + (data.payment_method || 'N/A') + '</td></tr>';
+                html += '<tr><td>Amount:</td><td>$' + (data.amount || '0.00') + '</td></tr>';
+                html += '<tr><td>Payment Status:</td><td>' + (data.payment_status || 'N/A') + '</td></tr>';
+                html += '<tr><td>Payment Date:</td><td>' + (data.payment_date || 'N/A') + '</td></tr>';
+            }
+            html += '</table>';
+            document.getElementById('paymentDetails').innerHTML = html;
+        })
+        .catch(error => {
+            document.getElementById('paymentDetails').innerHTML = 'Error loading payment details. Please try again later.';
+            console.error('Error fetching payment details:', error);
+        });
+}
+
+function closePaymentModal() {
+    document.getElementById('paymentModal').style.display = 'none';
+}
+</script>
+{% endblock %}

@@ -1,0 +1,66 @@
+[2025-04-15 17:58:44] === MySQL Repair and Diagnostic Tool ===
+[2025-04-15 17:58:44] Starting diagnostics...
+[2025-04-15 17:58:44] Checking MySQL service status...
+[2025-04-15 17:58:44] Error running command: sc query MySQL
+[2025-04-15 17:58:44] Error: 
+[2025-04-15 17:58:44] MySQL service is NOT running.
+[2025-04-15 17:58:44] Checking for port conflicts on port 3306...
+[2025-04-15 17:58:45] Error running command: netstat -ano | findstr :3306
+[2025-04-15 17:58:45] Error: 
+[2025-04-15 17:58:45] Port 3306 appears to be free.
+[2025-04-15 17:58:45] Checking available disk space...
+[2025-04-15 17:58:45] Disk space information:
+[2025-04-15 17:58:45] DeviceID  FreeSpace     Size          
+
+C:        340219039744  509722226688  
+
+
+
+
+[2025-04-15 17:59:14] Creating backup of MySQL data at mysql_data_backup_20250415_175914...
+[2025-04-15 17:59:14] Backed up ibdata1
+[2025-04-15 17:59:14] Backed up ib_logfile0
+[2025-04-15 17:59:14] Backed up ib_logfile1
+[2025-04-15 17:59:14] Backup of critical MySQL files created in mysql_data_backup_20250415_175914
+[2025-04-15 17:59:20] Attempting to restart MySQL service...
+[2025-04-15 17:59:20] Error running command: sc stop MySQL
+[2025-04-15 17:59:20] Error: 
+[2025-04-15 17:59:25] Error running command: sc start MySQL
+[2025-04-15 17:59:25] Error: 
+[2025-04-15 17:59:30] Checking MySQL service status...
+[2025-04-15 17:59:30] Error running command: sc query MySQL
+[2025-04-15 17:59:30] Error: 
+[2025-04-15 17:59:30] MySQL service is NOT running.
+[2025-04-15 17:59:30] Failed to restart MySQL service.
+[2025-04-15 17:59:30] 
+=== MySQL Recovery Options ===
+[2025-04-15 17:59:30] MySQL is still not running. Here are some additional steps to try:
+[2025-04-15 17:59:30] 
+1. Check the MySQL error log at C:\xampp\mysql\data\mysql_error.log
+[2025-04-15 17:59:30]    Look for specific error messages that might indicate the problem.
+[2025-04-15 17:59:30] 
+3. Try fixing corrupted tables:
+[2025-04-15 17:59:30] To fix corrupted MySQL tables, try the following:
+[2025-04-15 17:59:30] 1. Try using the MySQL repair utility:
+[2025-04-15 17:59:30]    - For MyISAM tables: mysqlcheck -r --all-databases -u root -p
+[2025-04-15 17:59:30]    - For InnoDB tables: Start MySQL with the --innodb-force-recovery=1 option
+[2025-04-15 17:59:30] 2. If that doesn't work, restore from a backup
+[2025-04-15 17:59:30] 3. If no backup is available, try recreating the corrupted tables
+[2025-04-15 17:59:30] 
+4. If you can't access MySQL at all, you might need to reset the password:
+[2025-04-15 17:59:30] MySQL Password Reset Instructions:
+[2025-04-15 17:59:30] 1. Stop the MySQL service
+[2025-04-15 17:59:30] 2. Open Command Prompt as Administrator
+[2025-04-15 17:59:30] 3. Navigate to MySQL bin directory (e.g., C:\xampp\mysql\bin)
+[2025-04-15 17:59:30] 4. Run: mysqld --defaults-file="C:\xampp\mysql\bin\my.ini" --init-file=C:\reset-pw.txt --console
+[2025-04-15 17:59:30]    Where reset-pw.txt contains: ALTER USER 'root'@'localhost' IDENTIFIED BY 'new_password';
+[2025-04-15 17:59:30] 5. Once MySQL starts, press Ctrl+C to stop it
+[2025-04-15 17:59:30] 6. Restart MySQL service normally
+[2025-04-15 17:59:30] 7. Try connecting with the new password
+[2025-04-15 17:59:30] 
+5. As a last resort, you can reinstall MySQL or restore from a backup
+[2025-04-15 17:59:30]    Make sure to back up your data directory first!
+[2025-04-15 17:59:30] 
+Diagnostic process completed. Check the log for details and recommended actions.
+[2025-04-15 17:59:30] If the problem persists, consider checking the MySQL error log and Windows Event Viewer
+[2025-04-15 17:59:30] for more detailed information about what's causing the shutdown.

@@ -1,0 +1,776 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    /* Status badge styles */
+    .status-badge {
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.85em;
+    }
+    .status-pending {
+        background-color: #ffc107;
+        color: #212529;
+    }
+    .status-pending_payment {
+        background-color: #17a2b8;
+        color: white;
+    }
+    .status-confirmed {
+        background-color: #28a745;
+        color: white;
+    }
+    .status-completed {
+        background-color: #6c757d;
+        color: white;
+    }
+    .status-cancelled {
+        background-color: #dc3545;
+        color: white;
+    }
+    .status-paid {
+        background-color: #28a745;
+        color: white;
+    }
+    .status-unpaid {
+        background-color: #dc3545;
+        color: white;
+    }
+    .status-entry {
+        background-color: #03a9f4;
+        color: white;
+    }
+    .status-exited {
+        background-color: #4CAF50;
+        color: white;
+    }
+    
+    /* Dashboard layout styles */
+    .dashboard-container {
+        display: flex;
+        gap: 20px;
+    }
+    .sidebar {
+        flex: 0 0 300px;
+    }
+    .main-content {
+        flex: 1;
+    }
+    
+    /* Common component styles */
+    .panel {
+        background: white;
+        border-radius: 5px;
+        padding: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+    }
+    
+    .panel-title {
+        color: #4CAF50;
+        margin-top: 0;
+    }
+    
+    .panel-warning {
+        background: #fff8e1;
+        border-left: 4px solid #ffc107;
+    }
+    
+    .panel-warning .panel-title {
+        color: #212529;
+    }
+    
+    /* Table styles */
+    .table-container {
+        overflow-x: auto;
+        margin-top: 15px;
+    }
+    
+    .data-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    
+    .data-table th {
+        padding: 10px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+    }
+    
+    .data-table td {
+        padding: 10px;
+        border-bottom: 1px solid #ddd;
+    }
+    
+    .data-table thead tr {
+        background-color: #f2f2f2;
+    }
+    
+    .warning-table thead tr {
+        background-color: #ffeeba;
+    }
+    
+    /* Button styles */
+    .btn {
+        display: inline-block;
+        padding: 10px;
+        border-radius: 5px;
+        text-decoration: none;
+        text-align: center;
+        font-size: 0.9em;
+    }
+    
+    .btn-confirm {
+        background-color: #28a745;
+        color: white;
+    }
+    
+    .btn-cancel {
+        background-color: #dc3545;
+        color: white;
+    }
+    
+    .btn-action {
+        background-color: #17a2b8;
+        color: white;
+    }
+    
+    .btn-dashboard {
+        background-color: #4CAF50;
+        color: white;
+    }
+    
+    .btn-verify {
+        background-color: #2196F3;
+        color: white;
+    }
+    
+    .btn-parked {
+        background-color: #FF9800;
+        color: white;
+    }
+    
+    .btn-logout {
+        background-color: #f44336;
+        color: white;
+        margin-top: 10px;
+    }
+    
+    .action-container {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 15px;
+    }
+    
+    .stats-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 10px 0;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    
+    .stats-row:last-child {
+        border-bottom: none;
+    }
+    
+    .stats-label {
+        font-weight: normal;
+    }
+    
+    .stats-value {
+        font-weight: bold;
+    }
+    
+    .warning-value {
+        color: #ffc107;
+    }
+    
+    .danger-value {
+        color: #dc3545;
+    }
+    
+    .success-value {
+        color: #28a745;
+    }
+    
+    /* Overview cards */
+    .overview-container {
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+        margin-top: 15px;
+    }
+    
+    .overview-card {
+        padding: 15px;
+        border-radius: 5px;
+        flex: 1;
+    }
+    
+    .overview-confirmed {
+        background-color: #e8f5e9;
+    }
+    
+    .overview-pending {
+        background-color: #fff8e1;
+    }
+    
+    .overview-parked {
+        background-color: #e3f2fd;
+    }
+    
+    .overview-title {
+        margin-top: 0;
+        margin-bottom: 5px;
+    }
+    
+    .overview-confirmed .overview-title {
+        color: #2e7d32;
+    }
+    
+    .overview-pending .overview-title {
+        color: #f57c00;
+    }
+    
+    .overview-parked .overview-title {
+        color: #0277bd;
+    }
+    
+    .overview-value {
+        font-size: 1.8em;
+        font-weight: bold;
+        margin: 10px 0;
+    }
+    
+    .overview-confirmed .overview-value {
+        color: #2e7d32;
+    }
+    
+    .overview-pending .overview-value {
+        color: #f57c00;
+    }
+    
+    .overview-parked .overview-value {
+        color: #0277bd;
+    }
+    
+    /* Parking spot styles */
+    .spots-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        margin-top: 15px;
+    }
+    
+    .spot-card {
+        padding: 15px;
+        border-radius: 5px;
+        min-width: 200px;
+        flex: 1;
+    }
+    
+    .spot-available {
+        background-color: #e8f5e9;
+    }
+    
+    .spot-occupied {
+        background-color: #ffebee;
+    }
+    
+    .spot-reserved {
+        background-color: #e0f7fa;
+    }
+    
+    .spot-title {
+        margin-top: 0;
+        margin-bottom: 5px;
+    }
+    
+    .spot-available .spot-title {
+        color: #2e7d32;
+    }
+    
+    .spot-occupied .spot-title {
+        color: #c62828;
+    }
+    
+    .spot-reserved .spot-title {
+        color: #0277bd;
+    }
+    
+    .spot-details {
+        margin: 0; 
+        font-size: 0.9em;
+    }
+    
+    .spot-price {
+        margin: 5px 0; 
+        font-size: 0.9em;
+    }
+    
+    .spot-indicator {
+        display: flex;
+        align-items: center;
+        margin-top: 8px;
+    }
+    
+    .spot-indicator-dot {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        margin-right: 5px;
+    }
+    
+    .spot-available .spot-indicator-dot {
+        background-color: #4CAF50;
+    }
+    
+    .spot-occupied .spot-indicator-dot {
+        background-color: #F44336;
+    }
+    
+    .spot-reserved .spot-indicator-dot {
+        background-color: #03A9F4;
+    }
+    
+    .spot-indicator-text {
+        font-size: 0.85em;
+        font-weight: bold;
+        text-transform: capitalize;
+    }
+    
+    .spot-available .spot-indicator-text {
+        color: #2e7d32;
+    }
+    
+    .spot-occupied .spot-indicator-text {
+        color: #c62828;
+    }
+    
+    .spot-reserved .spot-indicator-text {
+        color: #0277bd;
+    }
+    
+    /* Modal styles */
+    .modal {
+        display: none;
+        position: fixed;
+        z-index: 1000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        background-color: rgba(0,0,0,0.4);
+    }
+    
+    .modal-content {
+        background-color: white;
+        margin: 15% auto;
+        padding: 20px;
+        border: 1px solid #888;
+        width: 80%;
+        max-width: 500px;
+        border-radius: 5px;
+        position: relative;
+    }
+    
+    .modal-close {
+        position: absolute;
+        right: 10px;
+        top: 5px;
+        font-size: 20px;
+        cursor: pointer;
+    }
+    
+    .modal-title {
+        margin-top: 0;
+        color: #4CAF50;
+    }
+    
+    .detail-row {
+        padding: 8px;
+        border-bottom: 1px solid #ddd;
+    }
+    
+    .detail-label {
+        font-weight: bold;
+    }
+    
+    .flex-row {
+        display: flex;
+        gap: 5px;
+    }
+    
+    .align-center {
+        display: flex;
+        align-items: center;
+    }
+    
+    .icon-margin {
+        margin-right: 5px;
+    }
+    
+    .text-muted {
+        color: #6c757d;
+        font-style: italic;
+        font-size: 0.9em;
+    }
+    
+    .detail-button {
+        background: none;
+        border: none;
+        color: #007bff;
+        cursor: pointer;
+        font-size: 0.9em;
+        text-decoration: underline;
+    }
+    
+    .action-buttons {
+        display: flex;
+        gap: 5px;
+        justify-content: center;
+    }
+    
+    .btn-confirm, .btn-cancel {
+        padding: 6px 10px;
+        border-radius: 4px;
+        text-decoration: none;
+        color: white;
+        font-weight: bold;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 80px;
+    }
+    
+    .btn-confirm {
+        background-color: #4CAF50;
+    }
+    
+    .btn-confirm:hover {
+        background-color: #3e8e41;
+    }
+    
+    .btn-cancel {
+        background-color: #f44336;
+    }
+    
+    .btn-cancel:hover {
+        background-color: #d32f2f;
+    }
+    
+    .icon-margin {
+        margin-right: 5px;
+    }
+    
+    /* Action Buttons */
+    .action-button {
+        padding: 8px 15px;
+        border-radius: 4px;
+        border: none;
+        color: white;
+        font-weight: bold;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 5px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    
+    .action-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    
+    .approve-button {
+        background-color: #4CAF50;
+    }
+    
+    .approve-button:hover {
+        background-color: #3e8e41;
+    }
+    
+    .decline-button {
+        background-color: #f44336;
+    }
+    
+    .decline-button:hover {
+        background-color: #d32f2f;
+    }
+</style>
+
+<div class="panel">
+    <h2 class="panel-title">Staff Dashboard</h2>
+    
+    <div class="dashboard-container">
+        <!-- Left Sidebar -->
+        <div class="sidebar">
+            <!-- Statistics Panel -->
+            <div class="panel">
+                <h3 class="panel-title">Statistics</h3>
+                <div class="action-container">
+                    <div class="stats-row">
+                        <span class="stats-label">Total Bookings:</span>
+                        <span class="stats-value">{{ stats.total_bookings }}</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-label">Pending Bookings:</span>
+                        <span class="stats-value warning-value">{{ stats.pending_bookings }}</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-label">Confirmed Bookings:</span>
+                        <span class="stats-value success-value">{{ stats.confirmed_bookings }}</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-label">Parked Vehicles:</span>
+                        <span class="stats-value">{{ stats.parked_vehicles }}</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-label">Available Spots:</span>
+                        <span class="stats-value">{{ stats.available_spots }}/{{ stats.total_spots }}</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-label">Total Revenue:</span>
+                        <span class="stats-value">₱{{ stats.total_revenue }}</span>
+                    </div>
+                </div>
+                
+                <div class="action-container" style="margin-top: 20px;">
+                    <a href="{{ url_for('staff_activity_history') }}" class="btn btn-action" style="width: 100%; text-align: center;">
+                        <span class="icon-margin">📋</span> View Activity History
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Main Content Area -->
+        <div class="main-content">
+            <!-- Quick Actions -->
+            <div class="panel">
+                <h3 class="panel-title">Bookings Overview</h3>
+                <div class="overview-container">
+                    <div class="overview-card overview-confirmed">
+                        <h4 class="overview-title">Confirmed Bookings</h4>
+                        <p class="overview-value">{{ stats.confirmed_bookings }}</p>
+                    </div>
+                    <div class="overview-card overview-pending">
+                        <h4 class="overview-title">Pending Bookings</h4>
+                        <p class="overview-value">{{ stats.pending_bookings }}</p>
+                    </div>
+                    <div class="overview-card overview-parked">
+                        <h4 class="overview-title">Current Parked</h4>
+                        <p class="overview-value">{{ stats.parked_vehicles }}</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Pending Bookings that need approval -->
+            <div class="panel panel-warning">
+                <h3 class="panel-title align-center">
+                    <span class="icon-margin">⚠️</span> 
+                    Pending Bookings Requiring Approval
+                </h3>
+                
+                {% if pending_bookings %}
+                    <div class="table-container">
+                        <table class="data-table warning-table">
+                            <thead>
+                                <tr>
+                                    <th>Booking ID</th>
+                                    <th>User</th>
+                                    <th>Location</th>
+                                    <th>Start Time</th>
+                                    <th>End Time</th>
+                                    <th>Payment</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for booking in pending_bookings %}
+                                    <tr>
+                                        <td>#{{ booking.booking_id }}</td>
+                                        <td>{{ booking.username }}</td>
+                                        <td>{{ booking.location }}</td>
+                                        <td>{{ booking.start_time }}</td>
+                                        <td>{{ booking.end_time }}</td>
+                                        <td>
+                                            <span class="status-badge status-{{ booking.payment_status }}">
+                                                {{ booking.payment_status }}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <!-- Always show the buttons for pending bookings regardless of conflicts -->
+                                            <button onclick="confirmAction('approve', '{{ booking.booking_id }}')" 
+                                               class="action-button approve-button">
+                                                ✅ Accept
+                                            </button>
+                                            <button onclick="confirmAction('decline', '{{ booking.booking_id }}')" 
+                                               class="action-button decline-button">
+                                                ❌ Decline
+                                            </button>
+                                            {% if booking.spot_is_occupied or booking.has_time_conflict %}
+                                                <div style="color:#dc3545; font-size:0.8em; margin-top:5px;">
+                                                    ⚠️ Warning: This booking has conflicts
+                                                </div>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="no-bookings-message">No pending bookings require approval at this time.</p>
+                {% endif %}
+            </div>
+            
+            <!-- All Bookings -->
+            <div class="panel">
+                <h3 class="panel-title">All Bookings</h3>
+                {% if bookings %}
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Booking ID</th>
+                                    <th>User</th>
+                                    <th>Location</th>
+                                    <th>Start Time</th>
+                                    <th>End Time</th>
+                                    <th>Status</th>
+                                    <th>Payment</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for booking in bookings %}
+                                    <tr>
+                                        <td>{{ booking.booking_id }}</td>
+                                        <td>{{ booking.username }}</td>
+                                        <td>{{ booking.location }}</td>
+                                        <td>{{ booking.start_time }}</td>
+                                        <td>{{ booking.end_time }}</td>
+                                        <td>
+                                            <span class="status-badge status-{{ booking.status }}">{{ booking.status }}</span>
+                                        </td>
+                                        <td>
+                                            <span class="status-badge status-{{ booking.payment_status }}">{{ booking.payment_status }}</span>
+                                            <button onclick="showPaymentDetails('{{ booking.booking_id }}')" class="detail-button">Details</button>
+                                        </td>
+                                        <td>
+                                            {% if booking.status == 'confirmed' and booking.payment_status == 'paid' %}
+                                                <a href="{{ url_for('staff_handle_entry_exit', booking_id=booking.booking_id, action_type='entry', redirect_to='staff_dashboard') }}" class="btn btn-action align-center">
+                                                    <span class="icon-margin">🚗</span> Handle Entry/Exit
+                                                </a>
+                                            {% elif booking.status == 'pending' %}
+                                                {% if booking.spot_is_occupied or booking.has_time_conflict %}
+                                                    <!-- Only show Decline button for conflicts -->
+                                                    <button onclick="confirmAction('decline', '{{ booking.booking_id }}')" 
+                                                       class="action-button decline-button">
+                                                        ❌ Decline
+                                                    </button>
+                                                {% else %}
+                                                    <button onclick="confirmAction('approve', '{{ booking.booking_id }}')" 
+                                                       class="action-button approve-button">
+                                                        ✅ Accept
+                                                    </button>
+                                                    <button onclick="confirmAction('decline', '{{ booking.booking_id }}')" 
+                                                       class="action-button decline-button">
+                                                        ❌ Decline
+                                                    </button>
+                                                {% endif %}
+                                            {% else %}
+                                                <span class="text-muted">No actions available</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p>No bookings available.</p>
+                {% endif %}
+            </div>
+            
+            <!-- Parking Spots Overview -->
+            <div class="panel">
+                <h3 class="panel-title">Parking Spots Overview</h3>
+                
+                <div class="spots-container">
+                    {% for spot in parking_spots %}
+                        <div class="spot-card spot-{{ spot.status }}">
+                            <h4 class="spot-title">Spot #{{ spot.spot_id }}</h4>
+                            <p class="spot-details"><strong>Location:</strong> {{ spot.location }}</p>
+                            <p class="spot-price"><strong>Price:</strong> ₱{{ spot.price_per_hour }}/hour</p>
+                            <div class="spot-indicator">
+                                <span class="spot-indicator-dot"></span>
+                                <span class="spot-indicator-text">{{ spot.status }}</span>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Payment details modal (hidden by default) -->
+<div id="paymentModal" class="modal">
+    <div class="modal-content">
+        <span onclick="closePaymentModal()" class="modal-close">&times;</span>
+        <h3 class="modal-title">Payment Details</h3>
+        <div id="paymentDetails">
+            <p>Loading payment details...</p>
+        </div>
+    </div>
+</div>
+
+<script>
+function showPaymentDetails(bookingId) {
+    // Show modal
+    document.getElementById('paymentModal').style.display = 'block';
+    
+    // Fetch payment details
+    fetch(`/api/payment_details/${bookingId}`)
+        .then(response => response.json())
+        .then(data => {
+            let html = '<table style="width: 100%; border-collapse: collapse;">';
+            html += `<tr class="detail-row"><td class="detail-label">Booking ID:</td><td>${data.booking_id}</td></tr>`;
+            html += `<tr class="detail-row"><td class="detail-label">Amount:</td><td>₱${data.amount}</td></tr>`;
+            html += `<tr class="detail-row"><td class="detail-label">Payment Method:</td><td>${data.payment_method || 'N/A'}</td></tr>`;
+            html += `<tr class="detail-row"><td class="detail-label">Transaction ID:</td><td>${data.transaction_id || 'N/A'}</td></tr>`;
+            html += `<tr class="detail-row"><td class="detail-label">Payment Date:</td><td>${data.payment_date || 'N/A'}</td></tr>`;
+            html += `<tr class="detail-row"><td class="detail-label">Status:</td><td><span class="status-badge status-${data.status}">${data.status}</span></td></tr>`;
+            html += '</table>';
+            
+            document.getElementById('paymentDetails').innerHTML = html;
+        })
+        .catch(error => {
+            document.getElementById('paymentDetails').innerHTML = '<p>Error loading payment details.</p>';
+            console.error('Error:', error);
+        });
+}
+
+function closePaymentModal() {
+    document.getElementById('paymentModal').style.display = 'none';
+}
+
+function confirmAction(action, bookingId) {
+    const actionText = action === 'approve' ? 'Accept' : 'Decline';
+    
+    if (confirm(`Are you sure you want to ${actionText} booking #${bookingId}?`)) {
+        if (action === 'approve') {
+            window.location.href = `/staff/approve_booking/${bookingId}`;
+        } else if (action === 'decline') {
+            window.location.href = `/staff/decline_booking/${bookingId}`;
+        }
+    }
+}
+</script>
+{% endblock %}

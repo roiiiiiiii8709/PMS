@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    .status-pending {
+        background-color: #ffc107;
+        color: #212529;
+    }
+    .status-pending_payment {
+        background-color: #17a2b8;
+        color: white;
+    }
+    .status-paid {
+        background-color: #28a745;
+        color: white;
+    }
+    .status-default {
+        background-color: #6c757d;
+        color: white;
+    }
+    .status-badge {
+        padding: 3px 8px;
+        border-radius: 3px;
+        font-size: 0.8em;
+    }
+    .action-btn {
+        display: inline-block;
+        padding: 8px 15px;
+        border-radius: 4px;
+        text-decoration: none;
+        font-weight: bold;
+        text-align: center;
+        transition: background-color 0.2s;
+    }
+    .action-btn.accept {
+        background-color: #28a745;
+        color: white;
+    }
+    .action-btn.decline {
+        background-color: #dc3545;
+        color: white;
+    }
+    .action-btn:hover {
+        opacity: 0.9;
+    }
+    .booking-card {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+        overflow: hidden;
+    }
+    .booking-header {
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-bottom: 1px solid #e9ecef;
+    }
+    .booking-body {
+        padding: 15px;
+    }
+    .detail-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-bottom: 15px;
+    }
+    .detail-item {
+        margin-bottom: 8px;
+    }
+    .detail-label {
+        font-size: 12px;
+        color: #6c757d;
+        margin-bottom: 3px;
+    }
+    .detail-value {
+        font-weight: 500;
+    }
+    .section-title {
+        display: flex;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+    .section-title i {
+        margin-right: 10px;
+        font-size: 24px;
+        color: #4CAF50;
+    }
+</style>
+
+<div style="max-width: 1000px; margin: 0 auto; padding: 20px;">
+    <div class="section-title">
+        <i>✓</i>
+        <h2 style="color: #4CAF50; margin: 0;">Verify Bookings</h2>
+    </div>
+    
+    <p style="margin-bottom: 20px;">Review and approve pending booking requests from users.</p>
+    
+    {% if pending_bookings %}
+    <div style="margin-bottom: 30px;">        
+        {% for booking in pending_bookings %}
+        <div class="booking-card">
+            <div class="booking-header">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0; color: #4CAF50;">Booking #{{ booking.booking_id }}</h3>
+                    <div>
+                        <span class="status-badge {% if booking.status == 'pending' %}status-pending{% elif booking.status == 'pending_payment' %}status-pending_payment{% else %}status-default{% endif %}">
+                            {{ booking.status }}
+                        </span>
+                        <span class="status-badge {% if booking.payment_status == 'pending' %}status-pending{% elif booking.payment_status == 'paid' %}status-paid{% else %}status-default{% endif %}">
+                            {{ booking.payment_status }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="booking-body">
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-label">User</div>
+                        <div class="detail-value">{{ booking.username }}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Parking Location</div>
+                        <div class="detail-value">{{ booking.location }}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Start Time</div>
+                        <div class="detail-value">{{ booking.start_time }}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">End Time</div>
+                        <div class="detail-value">{{ booking.end_time }}</div>
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 15px;">
+                    {% if booking.status == 'pending' %}
+                        <a href="{{ url_for('confirm_booking', booking_id=booking.booking_id) }}" class="action-btn accept">
+                            Accept Booking
+                        </a>
+                        <a href="{{ url_for('cancel_booking_staff', booking_id=booking.booking_id) }}" class="action-btn decline">
+                            Decline Booking
+                        </a>
+                    {% elif booking.status == 'pending_payment' or booking.payment_status == 'pending' %}
+                        <a href="{{ url_for('verify_payment', booking_id=booking.booking_id, action='accept') }}" class="action-btn accept">
+                            Accept Payment
+                        </a>
+                        <a href="{{ url_for('verify_payment', booking_id=booking.booking_id, action='reject') }}" class="action-btn decline">
+                            Decline Payment
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div style="background: white; border-radius: 8px; padding: 30px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); margin-bottom: 20px; text-align: center;">
+        <img src="https://cdn-icons-png.flaticon.com/512/3572/3572252.png" alt="No Bookings" style="width: 80px; height: 80px; opacity: 0.5; margin-bottom: 15px;">
+        <p style="font-size: 18px; color: #6c757d; margin-bottom: 0;">No bookings pending verification at this time.</p>
+    </div>
+    {% endif %}
+    
+    <div style="margin-top: 20px; text-align: center;">
+        <a href="{{ url_for('staff_dashboard') }}" style="display: inline-block; background-color: #6c757d; color: white; padding: 10px 15px; border-radius: 4px; text-decoration: none;">Back to Dashboard</a>
+    </div>
+</div>
+{% endblock %}

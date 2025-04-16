@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    /* Parked Vehicles styles */
+    .parked-vehicle-card {
+        background-color: white;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+        border-left: 5px solid #03a9f4;
+        transition: transform 0.2s;
+    }
+    .parked-vehicle-card:hover {
+        transform: translateY(-3px);
+    }
+    .spot-name {
+        font-size: 1.4em;
+        font-weight: bold;
+        color: #0277bd;
+        margin-bottom: 10px;
+    }
+    .vehicle-details {
+        font-size: 1em;
+        color: #555;
+        margin-bottom: 12px;
+    }
+    .entry-time {
+        display: inline-block;
+        background-color: #e3f2fd;
+        padding: 5px 10px;
+        border-radius: 4px;
+        font-size: 0.9em;
+        color: #0277bd;
+        margin-bottom: 15px;
+    }
+    .exit-button {
+        width: 100%;
+        background-color: #dc3545;
+        color: white;
+        padding: 10px 15px;
+        border: none;
+        border-radius: 4px; 
+        cursor: pointer;
+        font-size: 1em;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background-color 0.2s;
+    }
+    .exit-button:hover {
+        background-color: #c82333;
+    }
+    .empty-state {
+        text-align: center;
+        padding: 50px 20px;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        margin: 20px 0;
+    }
+    .refresh-button {
+        background-color: #03a9f4;
+        color: white;
+        padding: 8px 15px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        margin-left: 10px;
+    }
+    .refresh-button:hover {
+        background-color: #0288d1;
+    }
+    .grid-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 20px;
+    }
+</style>
+
+<div style="padding: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
+        <h2 style="color: #03a9f4; margin: 0; display: flex; align-items: center;">
+            <span style="font-size: 1.5em; margin-right: 10px;">🚗</span>
+            Parked Vehicles Dashboard
+        </h2>
+        <div>
+            <a href="{{ url_for('staff_parked_vehicles') }}" class="refresh-button">
+                <span style="margin-right: 5px;">🔄</span> Refresh
+            </a>
+            <a href="{{ url_for('staff_dashboard') }}" style="margin-left: 10px; background-color: #6c757d; color: white; padding: 8px 15px; border-radius: 4px; text-decoration: none;">
+                Back to Dashboard
+            </a>
+        </div>
+    </div>
+    
+    {% if parked_vehicles %}
+        <div class="grid-container">
+            {% for vehicle in parked_vehicles %}
+                <div class="parked-vehicle-card">
+                    <div class="spot-name">{{ vehicle.location }}</div>
+                    <div class="vehicle-details">
+                        <div style="margin-bottom: 5px;"><strong>Customer:</strong> {{ vehicle.username }}</div>
+                        <div><strong>Booking ID:</strong> #{{ vehicle.booking_id }}</div>
+                    </div>
+                    <div class="entry-time">
+                        <span style="margin-right: 5px;">⏱️</span>
+                        Entry: {{ vehicle.entry_time.strftime('%d %b %Y, %I:%M %p') if vehicle.entry_time else 'N/A' }}
+                    </div>
+                    <form method="POST" action="{{ url_for('staff_handle_entry_exit') }}">
+                        <input type="hidden" name="booking_id" value="{{ vehicle.booking_id }}">
+                        <input type="hidden" name="action_type" value="exit">
+                        <input type="hidden" name="redirect_to" value="staff_parked_vehicles">
+                        <button type="submit" class="exit-button">
+                            <span style="margin-right: 5px; font-size: 1.1em;">🚪</span> Record Exit
+                        </button>
+                    </form>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <img src="https://cdn-icons-png.flaticon.com/512/2311/2311524.png" alt="No vehicles" style="width: 100px; opacity: 0.4; margin-bottom: 20px;">
+            <h3 style="color: #6c757d; margin-bottom: 10px;">No Vehicles Currently Parked</h3>
+            <p style="color: #6c757d; max-width: 500px; margin: 0 auto 20px;">When vehicles enter the parking area, they will appear here for easy management.</p>
+            <a href="{{ url_for('staff_handle_entry_exit') }}" style="background-color: #03a9f4; color: white; padding: 10px 20px; border-radius: 4px; text-decoration: none; display: inline-block;">
+                Record New Entry
+            </a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

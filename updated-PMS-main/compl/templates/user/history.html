@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    .stats-card {
+        background-color: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        padding: 15px;
+        margin-bottom: 20px;
+        flex: 1;
+        min-width: 200px;
+        text-align: center;
+    }
+    .stats-value {
+        font-size: 24px;
+        font-weight: bold;
+        color: #4CAF50;
+        margin: 10px 0;
+    }
+    .stats-label {
+        color: #6c757d;
+        font-size: 14px;
+    }
+    .status-badge {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 3px;
+        font-size: 0.8em;
+    }
+    .status-completed {
+        background-color: #28a745;
+        color: white;
+    }
+    .status-confirmed {
+        background-color: #007bff;
+        color: white;
+    }
+    .status-pending {
+        background-color: #ffc107;
+        color: #212529;
+    }
+    .status-pending_payment {
+        background-color: #17a2b8;
+        color: white;
+    }
+    .status-cancelled {
+        background-color: #dc3545;
+        color: white;
+    }
+    .status-paid {
+        background-color: #28a745;
+        color: white;
+    }
+    .status-unpaid, .status-rejected {
+        background-color: #dc3545;
+        color: white;
+    }
+    .booking-card {
+        background-color: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        padding: 20px;
+        margin-bottom: 15px;
+        transition: transform 0.2s ease;
+    }
+    .booking-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    .booking-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 10px;
+    }
+    .booking-id {
+        font-weight: bold;
+        color: #4CAF50;
+    }
+    .booking-details {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+    }
+    .detail-item {
+        margin-bottom: 10px;
+    }
+    .detail-label {
+        font-size: 12px;
+        color: #6c757d;
+        display: block;
+    }
+    .detail-value {
+        font-weight: 500;
+    }
+    .timeline {
+        position: relative;
+        margin-top: 20px;
+        padding-left: 30px;
+    }
+    .timeline::before {
+        content: '';
+        position: absolute;
+        left: 10px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background-color: #e9ecef;
+    }
+    .timeline-item {
+        position: relative;
+        margin-bottom: 15px;
+    }
+    .timeline-item::before {
+        content: '';
+        position: absolute;
+        left: -26px;
+        top: 4px;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background-color: #4CAF50;
+    }
+    .timeline-date {
+        font-size: 12px;
+        color: #6c757d;
+    }
+    .timeline-content {
+        font-weight: 500;
+    }
+</style>
+
+<div style="padding: 20px; max-width: 1200px; margin: 0 auto;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2 style="color: #4CAF50; margin: 0;">Booking History</h2>
+        <a href="{{ url_for('user_dashboard') }}" style="display: inline-block; background-color: #6c757d; color: white; padding: 8px 15px; border-radius: 4px; text-decoration: none; font-size: 14px;">Back to Dashboard</a>
+    </div>
+    
+    <!-- Statistics Cards -->
+    {% if stats %}
+    <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 30px;">
+        <div class="stats-card">
+            <div class="stats-label">Total Bookings</div>
+            <div class="stats-value">{{ stats.total_bookings }}</div>
+        </div>
+        <div class="stats-card">
+            <div class="stats-label">Completed</div>
+            <div class="stats-value">{{ stats.completed_bookings }}</div>
+        </div>
+        <div class="stats-card">
+            <div class="stats-label">Active</div>
+            <div class="stats-value">{{ stats.active_bookings }}</div>
+        </div>
+        <div class="stats-card">
+            <div class="stats-label">Cancelled</div>
+            <div class="stats-value">{{ stats.cancelled_bookings }}</div>
+        </div>
+        <div class="stats-card">
+            <div class="stats-label">Total Spent</div>
+            <div class="stats-value">₱{{ "%.2f"|format(stats.total_spent or 0) }}</div>
+        </div>
+    </div>
+    {% endif %}
+    
+    <!-- Bookings List -->
+    <div>
+        <h3 style="color: #4CAF50; margin-bottom: 15px;">All Bookings</h3>
+        
+        {% if bookings %}
+            {% for booking in bookings %}
+                <div class="booking-card">
+                    <div class="booking-header">
+                        <div class="booking-id">Booking #{{ booking.booking_id }}</div>
+                        <div>
+                            <span class="status-badge status-{{ booking.status }}">{{ booking.status }}</span>
+                            <span class="status-badge status-{{ booking.payment_status }}">{{ booking.payment_status }}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="booking-details">
+                        <div class="detail-item">
+                            <span class="detail-label">Location</span>
+                            <span class="detail-value">{{ booking.location }}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Start Time</span>
+                            <span class="detail-value">{{ booking.start_time }}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">End Time</span>
+                            <span class="detail-value">{{ booking.end_time }}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Duration</span>
+                            <span class="detail-value">{{ booking.duration }} hours</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Total Cost</span>
+                            <span class="detail-value">₱{{ "%.2f"|format(booking.total_cost) }}</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Timeline for completed bookings -->
+                    {% if booking.status == 'completed' or booking.entry_time %}
+                    <div class="timeline">
+                        <div class="timeline-item">
+                            <div class="timeline-date">{{ booking.created_at }}</div>
+                            <div class="timeline-content">Booking Created</div>
+                        </div>
+                        {% if booking.status == 'confirmed' or booking.status == 'completed' %}
+                        <div class="timeline-item">
+                            <div class="timeline-date">-</div>
+                            <div class="timeline-content">Booking Confirmed</div>
+                        </div>
+                        {% endif %}
+                        {% if booking.entry_time %}
+                        <div class="timeline-item">
+                            <div class="timeline-date">{{ booking.entry_time }}</div>
+                            <div class="timeline-content">Vehicle Entry</div>
+                        </div>
+                        {% endif %}
+                        {% if booking.exit_time %}
+                        <div class="timeline-item">
+                            <div class="timeline-date">{{ booking.exit_time }}</div>
+                            <div class="timeline-content">Vehicle Exit</div>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    
+                    <!-- Actions -->
+                    <div style="margin-top: 15px; text-align: right;">
+                        {% if booking.payment_status == 'unpaid' and booking.status != 'cancelled' %}
+                            <a href="{{ url_for('make_payment', booking_id=booking.booking_id) }}" style="display: inline-block; background-color: #4CAF50; color: white; padding: 5px 10px; border-radius: 3px; text-decoration: none; font-size: 0.9em;">Make Payment</a>
+                        {% endif %}
+                        
+                        {% if booking.status == 'pending' %}
+                            <a href="{{ url_for('cancel_booking', booking_id=booking.booking_id) }}" style="display: inline-block; background-color: #dc3545; color: white; padding: 5px 10px; border-radius: 3px; text-decoration: none; font-size: 0.9em;">Cancel Booking</a>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        {% else %}
+            <div style="text-align: center; padding: 30px; background-color: #f8f9fa; border-radius: 5px;">
+                <p style="font-size: 18px; color: #6c757d;">You don't have any booking history yet.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

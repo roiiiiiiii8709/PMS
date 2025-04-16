@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ParkNext</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/flash.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+    <header>
+        <div class="logo">
+            <i class="fas fa-car fa-2x" style="color: var(--primary); vertical-align: middle;"></i>
+            <span style="font-weight: 600; margin-left: 0.5rem; font-size: 1.25rem; vertical-align: middle;">ParkNext!</span>
+        </div>
+        <nav>
+            <ul>
+                <li><a href="/"><i class="fas fa-home fa-sm" style="width: 16px; text-align: center; margin-right: 5px;"></i> Home</a></li>
+                {% if 'username' in session %}
+                    {% if session.role == 'user' %}
+                        <li><a href="{{ url_for('user_dashboard') }}"><i class="fas fa-tachometer-alt fa-sm" style="width: 16px; text-align: center; margin-right: 5px;"></i> Dashboard</a></li>
+                    {% elif session.role == 'staff' %}
+                        <li><a href="{{ url_for('staff_dashboard') }}"><i class="fas fa-clipboard-list fa-sm" style="width: 16px; text-align: center; margin-right: 5px;"></i> Dashboard</a></li>
+                    {% elif session.role == 'admin' %}
+                        <li><a href="{{ url_for('admin_dashboard') }}"><i class="fas fa-user-shield fa-sm" style="width: 16px; text-align: center; margin-right: 5px;"></i> Dashboard</a></li>
+                    {% endif %}
+                    <li><a href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt fa-sm" style="width: 16px; text-align: center; margin-right: 5px;"></i> Log out ({{ session.username }})</a></li>
+                {% else %}
+                    <li><a href="{{ url_for('login') }}"><i class="fas fa-sign-in-alt fa-sm" style="width: 16px; text-align: center; margin-right: 5px;"></i> Log in</a></li>
+                    <li><a href="{{ url_for('register') }}"><i class="fas fa-user-plus fa-sm" style="width: 16px; text-align: center; margin-right: 5px;"></i> Register</a></li>
+                {% endif %}
+            </ul>
+        </nav>
+    </header>
+    <main class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-messages">
+                    {% for category, message in messages %}
+                        <div class="flash-message flash-{{ category }}">
+                            <i class="fas {% if category == 'success' %}fa-check-circle{% elif category == 'error' %}fa-exclamation-triangle{% else %}fa-info-circle{% endif %}" style="margin-right: 8px; vertical-align: middle;"></i>
+                            <strong>{{ message }}</strong>
+                            <span class="flash-close" onclick="this.parentElement.style.display='none';">&times;</span>
+                        </div>
+                    {% endfor %}
+                </div>
+                <script>
+                    // Make flash messages stay visible longer and fade out smoothly
+                    document.addEventListener('DOMContentLoaded', function() {
+                        var flashMessages = document.querySelectorAll('.flash-message');
+                        flashMessages.forEach(function(message) {
+                            // Keep messages visible for 6 seconds before auto-hiding
+                            setTimeout(function() {
+                                // Simply hide the message without animation
+                                message.style.display = 'none';
+                            }, 6000);
+                        });
+                    });
+                </script>
+            {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </main>
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 ParkNext</p>
+            <div class="footer-links">
+                <a href="#"><i class="fab fa-facebook" style="margin: 0 5px;"></i></a>
+                <a href="#"><i class="fab fa-twitter" style="margin: 0 5px;"></i></a>
+                <a href="#"><i class="fab fa-instagram" style="margin: 0 5px;"></i></a>
+                <a href="#"><i class="fab fa-linkedin" style="margin: 0 5px;"></i></a>
+            </div>
+        </div>
+    </footer>
+    
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

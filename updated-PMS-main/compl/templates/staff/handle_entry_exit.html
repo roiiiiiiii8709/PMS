@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    .success-message {
+        background-color: #d4edda;
+        border-left: 4px solid #28a745;
+        color: #155724;
+    }
+    .error-message {
+        background-color: #f8d7da;
+        border-left: 4px solid #dc3545;
+        color: #721c24;
+    }
+</style>
+
+<div style="max-width: 1000px; margin: 0 auto; padding: 20px;">
+    <h2 style="color: #4CAF50; margin-bottom: 20px;">Handle Vehicle Entry/Exit</h2>
+    
+    <div style="background: white; border-radius: 5px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px;">
+        <div style="margin-bottom: 15px; padding: 15px; background-color: #f8f9fa; border-radius: 5px; border-left: 4px solid #17a2b8;">
+            <h4 style="margin-top: 0; color: #17a2b8; margin-bottom: 10px;">How to use this page:</h4>
+            <ul style="padding-left: 20px; margin: 0;">
+                <li style="margin-bottom: 5px;"><strong>Vehicle Entry:</strong> When a customer arrives with a confirmed booking, click "Vehicle Entry" to update the spot as occupied.</li>
+                <li style="margin-bottom: 5px;"><strong>Vehicle Exit:</strong> When a customer leaves, click "Vehicle Exit" to free up the spot and mark the booking as completed.</li>
+                <li>Select the booking from the table below and choose the appropriate action.</li>
+            </ul>
+        </div>
+        
+        {% if confirmed_bookings %}
+        <div style="overflow-x: auto;">
+            <h3 style="color: #4CAF50; margin-top: 0; margin-bottom: 15px;">Bookings and Entry/Exit Records</h3>
+            
+            <!-- Visual Legend -->
+            <div style="display: flex; gap: 15px; margin-bottom: 15px; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center;">
+                    <div style="width: 20px; height: 20px; background-color: #fff; border: 1px solid #ddd; margin-right: 5px;"></div>
+                    <span>Ready for processing</span>
+                </div>
+                <div style="display: flex; align-items: center;">
+                    <div style="width: 20px; height: 20px; background-color: #fff3cd; border: 1px solid #ddd; margin-right: 5px;"></div>
+                    <span>Awaiting payment</span>
+                </div>
+                <div style="display: flex; align-items: center;">
+                    <div style="width: 20px; height: 20px; background-color: #e2e3e5; border: 1px solid #ddd; margin-right: 5px;"></div>
+                    <span>Awaiting entry</span>
+                </div>
+                <div style="display: flex; align-items: center;">
+                    <div style="width: 20px; height: 20px; background-color: #d1ecf1; border: 1px solid #ddd; margin-right: 5px;"></div>
+                    <span>Entered</span>
+                </div>
+                <div style="display: flex; align-items: center;">
+                    <div style="width: 20px; height: 20px; background-color: #d4edda; border: 1px solid #ddd; margin-right: 5px;"></div>
+                    <span>Exited</span>
+                </div>
+            </div>
+            
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                <thead>
+                    <tr style="background-color: #f2f2f2;">
+                        <th style="padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd;">ID</th>
+                        <th style="padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd;">User</th>
+                        <th style="padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd;">Spot</th>
+                        <th style="padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd;">Start Time</th>
+                        <th style="padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd;">End Time</th>
+                        <th style="padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd;">Payment</th>
+                        <th style="padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd;">Status</th>
+                        <th style="padding: 12px 15px; text-align: center; border-bottom: 1px solid #ddd;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for booking in confirmed_bookings %}
+                    <tr {% if booking.payment_status != 'paid' %}style="background-color: #fff3cd;"{% elif booking.entry_time and booking.exit_time %}style="background-color: #d4edda;"{% elif booking.entry_time %}style="background-color: #d1ecf1;"{% elif not booking.entry_time %}style="background-color: #e2e3e5;"{% endif %}>
+                        <td style="padding: 12px 15px; border-bottom: 1px solid #ddd;">{{ booking.booking_id }}</td>
+                        <td style="padding: 12px 15px; border-bottom: 1px solid #ddd;">{{ booking.username }}</td>
+                        <td style="padding: 12px 15px; border-bottom: 1px solid #ddd;">{{ booking.location }}</td>
+                        <td style="padding: 12px 15px; border-bottom: 1px solid #ddd;" class="format-datetime">{{ booking.start_time }}</td>
+                        <td style="padding: 12px 15px; border-bottom: 1px solid #ddd;" class="format-datetime">{{ booking.end_time }}</td>
+                        <td style="padding: 12px 15px; border-bottom: 1px solid #ddd;">
+                            {% if booking.payment_status == 'paid' %}
+                                <span style="background-color: #d4edda; color: #155724; padding: 3px 8px; border-radius: 3px; font-size: 0.85em;">Paid</span>
+                            {% else %}
+                                <span style="background-color: #f8d7da; color: #721c24; padding: 3px 8px; border-radius: 3px; font-size: 0.85em;">Unpaid</span>
+                            {% endif %}
+                        </td>
+                        <td style="padding: 12px 15px; border-bottom: 1px solid #ddd;">
+                            {% if booking.entry_time and booking.exit_time %}
+                                <span style="background-color: #d1ecf1; color: #0c5460; padding: 3px 8px; border-radius: 3px; font-size: 0.85em;">Exited</span>
+                            {% elif booking.entry_time %}
+                                <span style="background-color: #d1ecf1; color: #0c5460; padding: 3px 8px; border-radius: 3px; font-size: 0.85em;">Entered</span>
+                            {% else %}
+                                <span style="background-color: #e2e3e5; color: #383d41; padding: 3px 8px; border-radius: 3px; font-size: 0.85em;">Awaiting Entry</span>
+                            {% endif %}
+                        </td>
+                        <td style="padding: 12px 15px; border-bottom: 1px solid #ddd; text-align: center;">
+                            {% if not booking.entry_time and not booking.exit_time %}
+                                <form method="POST" action="{{ url_for('staff_handle_entry_exit') }}" style="display: flex; gap: 5px;">
+                                    <input type="hidden" name="booking_id" value="{{ booking.booking_id }}">
+                                    <input type="hidden" name="action_type" value="entry">
+                                    <button type="submit" style="flex: 1; background-color: #4CAF50; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; font-size: 0.9em;" {% if booking.payment_status != 'paid' %}disabled title="Payment required"{% endif %}>Entry</button>
+                                </form>
+                                <form method="POST" action="{{ url_for('staff_handle_entry_exit') }}" style="display: flex; gap: 5px; margin-top: 5px;">
+                                    <input type="hidden" name="booking_id" value="{{ booking.booking_id }}">
+                                    <input type="hidden" name="action_type" value="exit">
+                                    <button type="submit" style="flex: 1; background-color: #dc3545; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; font-size: 0.9em;" disabled title="Entry required">Exit</button>
+                                </form>
+                            {% elif booking.entry_time and not booking.exit_time %}
+                                <form method="POST" action="{{ url_for('staff_handle_entry_exit') }}" style="display: flex; gap: 5px;">
+                                    <input type="hidden" name="booking_id" value="{{ booking.booking_id }}">
+                                    <input type="hidden" name="action_type" value="exit">
+                                    <button type="submit" style="flex: 1; background-color: #dc3545; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; font-size: 0.9em;">Exit</button>
+                                </form>
+                            {% else %}
+                                <span style="color: #6c757d; font-style: italic;">Completed</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div style="text-align: center; padding: 20px; background-color: #f8f9fa; border-radius: 5px;">
+            <p style="font-size: 18px; color: #6c757d;">No bookings available yet. All vehicle entry/exit records will appear here.</p>
+        </div>
+        {% endif %}
+    </div>
+    
+    {% if message %}
+    <div class="flash-message {% if success %}success-message{% else %}error-message{% endif %}" style="margin-bottom: 20px; padding: 15px; border-radius: 5px;">
+        {{ message }}
+    </div>
+    {% endif %}
+    
+    <div style="margin-top: 20px; text-align: center;">
+        <a href="{{ url_for('staff_dashboard') }}" style="display: inline-block; background-color: #6c757d; color: white; padding: 10px 15px; border-radius: 4px; text-decoration: none;">Back to Dashboard</a>
+    </div>
+</div>
+{% endblock %}

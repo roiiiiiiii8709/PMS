@@ -1,0 +1,424 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div style="max-width: 1200px; margin: 0 auto; padding: 20px;">
+    <h2 style="color: #4CAF50; margin-bottom: 20px;">Generate Reports</h2>
+    
+    <div style="background: white; border-radius: 5px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px;">
+        <form method="POST" action="{{ url_for('generate_report') }}" style="display: flex; flex-direction: column; gap: 15px;">
+            <div>
+                <label for="report_type" style="display: block; margin-bottom: 5px;">Report Type:</label>
+                <select id="report_type" name="report_type" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <option value="bookings">Bookings Report</option>
+                    <option value="revenue">Revenue Report</option>
+                    <option value="occupancy">Occupancy Report</option>
+                </select>
+            </div>
+            
+            <div>
+                <label for="start_date" style="display: block; margin-bottom: 5px;">Start Date:</label>
+                <input type="date" id="start_date" name="start_date" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+            
+            <div>
+                <label for="end_date" style="display: block; margin-bottom: 5px;">End Date:</label>
+                <input type="date" id="end_date" name="end_date" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+            
+            <button type="submit" style="background-color: #4CAF50; color: white; padding: 10px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px;">Generate Report</button>
+        </form>
+    </div>
+    
+    {% if report_data %}
+        <div style="background: white; border-radius: 5px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <div style="margin-bottom: 20px;">
+                <h3 style="color: #4CAF50; margin-top: 0;">{{ report_title }}</h3>
+                <p><strong>Period:</strong> {{ start_date }} to {{ end_date }}</p>
+                
+                <!-- Summary Statistics -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
+                    {% if report_type == 'bookings' %}
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; text-align: center;">
+                            <h4 style="margin: 0 0 10px 0; color: #4CAF50;">Total Bookings</h4>
+                            <p style="font-size: 24px; margin: 0;">{{ total_bookings }}</p>
+                        </div>
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; text-align: center;">
+                            <h4 style="margin: 0 0 10px 0; color: #4CAF50;">Confirmed Bookings</h4>
+                            <p style="font-size: 24px; margin: 0;">{{ confirmed_bookings }}</p>
+                        </div>
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; text-align: center;">
+                            <h4 style="margin: 0 0 10px 0; color: #4CAF50;">Total Revenue</h4>
+                            <p style="font-size: 24px; margin: 0;">₱{{ total_revenue }}</p>
+                        </div>
+                    {% elif report_type == 'revenue' %}
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; text-align: center;">
+                            <h4 style="margin: 0 0 10px 0; color: #4CAF50;">Total Revenue</h4>
+                            <p style="font-size: 24px; margin: 0;">₱{{ total_revenue }}</p>
+                        </div>
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; text-align: center;">
+                            <h4 style="margin: 0 0 10px 0; color: #4CAF50;">Total Bookings</h4>
+                            <p style="font-size: 24px; margin: 0;">{{ total_bookings }}</p>
+                        </div>
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; text-align: center;">
+                            <h4 style="margin: 0 0 10px 0; color: #4CAF50;">Average Daily Revenue</h4>
+                            <p style="font-size: 24px; margin: 0;">₱{{ avg_daily_revenue }}</p>
+                        </div>
+                    {% elif report_type == 'occupancy' %}
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; text-align: center;">
+                            <h4 style="margin: 0 0 10px 0; color: #4CAF50;">Average Occupancy</h4>
+                            <p style="font-size: 24px; margin: 0;">{{ avg_occupancy }}%</p>
+                        </div>
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; text-align: center;">
+                            <h4 style="margin: 0 0 10px 0; color: #4CAF50;">Peak Occupancy</h4>
+                            <p style="font-size: 24px; margin: 0;">{{ peak_occupancy }}%</p>
+                        </div>
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; text-align: center;">
+                            <h4 style="margin: 0 0 10px 0; color: #4CAF50;">Total Hours Used</h4>
+                            <p style="font-size: 24px; margin: 0;">{{ total_hours }}</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Visual Charts -->
+            <div style="margin-bottom: 30px;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px;">
+                    {% if report_type == 'bookings' %}
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 5px;">
+                            <canvas id="bookingsChart"></canvas>
+                        </div>
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 5px;">
+                            <canvas id="bookingStatusChart"></canvas>
+                        </div>
+                    {% elif report_type == 'revenue' %}
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 5px;">
+                            <canvas id="revenueChart"></canvas>
+                        </div>
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 5px;">
+                            <canvas id="bookingsRevenueChart"></canvas>
+                        </div>
+                    {% elif report_type == 'occupancy' %}
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 5px;">
+                            <canvas id="occupancyChart"></canvas>
+                        </div>
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 5px;">
+                            <canvas id="hoursUsedChart"></canvas>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <!-- Data Tables -->
+            {% if report_type == 'bookings' %}
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background-color: #f2f2f2;">
+                                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Booking ID</th>
+                                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">User</th>
+                                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Location</th>
+                                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Start Time</th>
+                                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">End Time</th>
+                                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Status</th>
+                                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Payment</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for booking in report_data %}
+                                <tr>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{{ booking.booking_id }}</td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{{ booking.username }}</td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{{ booking.location }}</td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{{ booking.start_time }}</td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{{ booking.end_time }}</td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{{ booking.status }}</td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{{ booking.payment_status }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% elif report_type == 'revenue' %}
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background-color: #f2f2f2;">
+                                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Date</th>
+                                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Revenue</th>
+                                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Bookings</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in report_data %}
+                                <tr>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{{ item.date }}</td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">₱{{ item.revenue }}</td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{{ item.bookings }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr style="background-color: #f2f2f2; font-weight: bold;">
+                                <td style="padding: 10px; border-bottom: 1px solid #ddd;">Total</td>
+                                <td style="padding: 10px; border-bottom: 1px solid #ddd;">₱{{ total_revenue }}</td>
+                                <td style="padding: 10px; border-bottom: 1px solid #ddd;">{{ total_bookings }}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            {% elif report_type == 'occupancy' %}
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background-color: #f2f2f2;">
+                                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Location</th>
+                                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Total Hours</th>
+                                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Occupancy Rate</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in report_data %}
+                                <tr>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{{ item.location }}</td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{{ item.hours }}</td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">{{ item.occupancy_rate }}%</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% endif %}
+            
+            <div style="margin-top: 20px;">
+                <a href="{{ url_for('download_report', report_type=report_type, start_date=start_date, end_date=end_date) }}" style="display: inline-block; background-color: #007bff; color: white; padding: 10px 15px; border-radius: 4px; text-decoration: none;">Download Report</a>
+            </div>
+        </div>
+    {% endif %}
+    
+    <div style="margin-top: 20px; text-align: center;">
+        <a href="{{ url_for('admin_dashboard') }}" style="display: inline-block; background-color: #6c757d; color: white; padding: 10px 15px; border-radius: 4px; text-decoration: none;">Back to Dashboard</a>
+    </div>
+</div>
+
+<!-- Include Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- Store data in JSON format in hidden elements -->
+{% if report_data %}
+    <div id="chart-data" 
+         data-report-type="{{ report_type }}"
+         data-dates="{{ dates|tojson if dates else '[]' }}"
+         data-daily-bookings="{{ daily_bookings|tojson if daily_bookings else '[]' }}"
+         data-status-labels="{{ status_labels|tojson if status_labels else '[]' }}"
+         data-status-data="{{ status_data|tojson if status_data else '[]' }}"
+         data-revenues="{{ revenues|tojson if revenues else '[]' }}"
+         data-locations="{{ locations|tojson if locations else '[]' }}"
+         data-occupancy-rates="{{ occupancy_rates|tojson if occupancy_rates else '[]' }}"
+         data-hours-used="{{ hours_used|tojson if hours_used else '[]' }}"
+         style="display: none;">
+    </div>
+
+    <!-- Chart Initialization Scripts -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Get data from hidden div
+            var chartDataElement = document.getElementById('chart-data');
+            if (!chartDataElement) return;
+            
+            // Parse all data attributes
+            var chartData = {
+                type: chartDataElement.getAttribute('data-report-type'),
+                dates: JSON.parse(chartDataElement.getAttribute('data-dates') || '[]'),
+                dailyBookings: JSON.parse(chartDataElement.getAttribute('data-daily-bookings') || '[]'),
+                statusLabels: JSON.parse(chartDataElement.getAttribute('data-status-labels') || '[]'),
+                statusData: JSON.parse(chartDataElement.getAttribute('data-status-data') || '[]'),
+                revenues: JSON.parse(chartDataElement.getAttribute('data-revenues') || '[]'),
+                locations: JSON.parse(chartDataElement.getAttribute('data-locations') || '[]'),
+                occupancyRates: JSON.parse(chartDataElement.getAttribute('data-occupancy-rates') || '[]'),
+                hoursUsed: JSON.parse(chartDataElement.getAttribute('data-hours-used') || '[]')
+            };
+
+            // Initialize charts based on type
+            if (chartData.type === 'bookings') {
+                // Bookings by Date Chart
+                var bookingsCtx = document.getElementById('bookingsChart');
+                if (bookingsCtx) {
+                    new Chart(bookingsCtx, {
+                        type: 'line',
+                        data: {
+                            labels: chartData.dates,
+                            datasets: [{
+                                label: 'Number of Bookings',
+                                data: chartData.dailyBookings,
+                                borderColor: '#4CAF50',
+                                tension: 0.1
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: 'Bookings by Date'
+                                }
+                            }
+                        }
+                    });
+                }
+
+                // Booking Status Distribution Chart
+                var statusCtx = document.getElementById('bookingStatusChart');
+                if (statusCtx) {
+                    new Chart(statusCtx, {
+                        type: 'pie',
+                        data: {
+                            labels: chartData.statusLabels,
+                            datasets: [{
+                                data: chartData.statusData,
+                                backgroundColor: ['#4CAF50', '#FFC107', '#DC3545', '#17A2B8']
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: 'Booking Status Distribution'
+                                }
+                            }
+                        }
+                    });
+                }
+            } 
+            else if (chartData.type === 'revenue') {
+                // Daily Revenue Chart
+                var revenueCtx = document.getElementById('revenueChart');
+                if (revenueCtx) {
+                    new Chart(revenueCtx, {
+                        type: 'bar',
+                        data: {
+                            labels: chartData.dates,
+                            datasets: [{
+                                label: 'Daily Revenue',
+                                data: chartData.revenues,
+                                backgroundColor: '#4CAF50'
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: 'Daily Revenue'
+                                }
+                            }
+                        }
+                    });
+                }
+
+                // Revenue vs Bookings Chart
+                var bookingsRevenueCtx = document.getElementById('bookingsRevenueChart');
+                if (bookingsRevenueCtx) {
+                    new Chart(bookingsRevenueCtx, {
+                        type: 'line',
+                        data: {
+                            labels: chartData.dates,
+                            datasets: [{
+                                label: 'Revenue (₱)',
+                                data: chartData.revenues,
+                                borderColor: '#4CAF50',
+                                yAxisID: 'y'
+                            }, {
+                                label: 'Bookings',
+                                data: chartData.dailyBookings,
+                                borderColor: '#007bff',
+                                yAxisID: 'y1'
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: 'Revenue vs Bookings'
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    type: 'linear',
+                                    display: true,
+                                    position: 'left'
+                                },
+                                y1: {
+                                    type: 'linear',
+                                    display: true,
+                                    position: 'right',
+                                    grid: {
+                                        drawOnChartArea: false
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            } 
+            else if (chartData.type === 'occupancy') {
+                // Occupancy Rate by Location Chart
+                var occupancyCtx = document.getElementById('occupancyChart');
+                if (occupancyCtx) {
+                    new Chart(occupancyCtx, {
+                        type: 'bar',
+                        data: {
+                            labels: chartData.locations,
+                            datasets: [{
+                                label: 'Occupancy Rate (%)',
+                                data: chartData.occupancyRates,
+                                backgroundColor: '#4CAF50'
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: 'Occupancy Rate by Location'
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    max: 100
+                                }
+                            }
+                        }
+                    });
+                }
+
+                // Hours Used by Location Chart
+                var hoursUsedCtx = document.getElementById('hoursUsedChart');
+                if (hoursUsedCtx) {
+                    new Chart(hoursUsedCtx, {
+                        type: 'pie',
+                        data: {
+                            labels: chartData.locations,
+                            datasets: [{
+                                data: chartData.hoursUsed,
+                                backgroundColor: ['#4CAF50', '#007bff', '#FFC107', '#DC3545', '#17A2B8', '#6C757D']
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: 'Total Hours Used by Location'
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+        });
+    </script>
+{% endif %}
+{% endblock %}

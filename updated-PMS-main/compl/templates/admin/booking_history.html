@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <h2 class="title">Booking History</h2>
+    
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Staff Activities</h3>
+            <a href="{{ url_for('admin_dashboard') }}" class="back-link">
+                <i class="fas fa-arrow-left"></i> Back to Dashboard
+            </a>
+        </div>
+        
+        {% if activities %}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Activity ID</th>
+                        <th>Staff</th>
+                        <th>Action</th>
+                        <th>Details</th>
+                        <th>Target</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for activity in activities %}
+                        <tr class="{% if loop.index % 2 == 0 %}row-striped{% endif %}">
+                            <td>#{{ activity.log_id }}</td>
+                            <td>{{ activity.staff_username }}</td>
+                            <td>
+                                {% if activity.action_type == 'add' %}
+                                    <span class="badge badge-success">add</span>
+                                {% elif activity.action_type == 'edit' %}
+                                    <span class="badge badge-info">edit</span>
+                                {% elif activity.action_type == 'delete' %}
+                                    <span class="badge badge-danger">delete</span>
+                                {% elif activity.action_type == 'cancel' %}
+                                    <span class="badge badge-warning">cancel</span>
+                                {% elif activity.action_type == 'decline' %}
+                                    <span class="badge badge-danger">decline</span>
+                                {% elif activity.action_type == 'approve' %}
+                                    <span class="badge badge-success">approve</span>
+                                {% else %}
+                                    <span class="badge badge-secondary">{{ activity.action_type }}</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ activity.action_details }}</td>
+                            <td>
+                                {% if activity.booking_id %}
+                                    Booking #{{ activity.booking_id }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>{{ activity.action_time }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="no-activities">
+                <i class="fas fa-history" style="font-size: 48px; color: #ddd; margin-bottom: 15px;"></i>
+                <p>No staff activity history found.</p>
+            </div>
+        {% endif %}
+    </div>
+    
+    <!-- Cancelled/Expired Booking History Section -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h3 class="card-title">Cancelled Booking History</h3>
+        </div>
+        
+        {% if cancelled_bookings %}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Booking ID</th>
+                        <th>User</th>
+                        <th>Parking Spot</th>
+                        <th>Date Range</th>
+                        <th>Cancelled By</th>
+                        <th>Reason</th>
+                        <th>Cancelled On</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for booking in cancelled_bookings %}
+                        <tr class="{% if loop.index % 2 == 0 %}row-striped{% endif %}">
+                            <td>#{{ booking.booking_id }}</td>
+                            <td>{{ booking.username }}</td>
+                            <td>{{ booking.location }} (Spot #{{ booking.spot_id }})</td>
+                            <td>{{ booking.start_time.strftime('%m/%d/%Y') if booking.start_time else 'Unknown' }} - {{ booking.end_time.strftime('%m/%d/%Y') if booking.end_time else 'Unknown' }}</td>
+                            <td>
+                                {% if booking.staff_username %}
+                                    <span class="staff-name">{{ booking.staff_username }}</span>
+                                {% elif booking.end_time and booking.action_time and booking.end_time < booking.action_time %}
+                                    <span class="system-action">System (Expired)</span>
+                                {% else %}
+                                    <span class="user-action">{{ booking.username }} (Self)</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ booking.action_details }}</td>
+                            <td>{{ booking.action_time }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="no-activities">
+                <i class="fas fa-ban" style="font-size: 48px; color: #ddd; margin-bottom: 15px;"></i>
+                <p>No cancelled bookings found.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+    .container {
+        padding: 20px;
+    }
+    .title {
+        color: #4CAF50;
+        margin-bottom: 20px;
+    }
+    .card {
+        background: white;
+        border-radius: 5px;
+        padding: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+    }
+    .card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+    .card-title {
+        margin: 0;
+        color: #4CAF50;
+    }
+    .back-link {
+        color: #4CAF50;
+        text-decoration: none;
+    }
+    .table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .table th, .table td {
+        padding: 10px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+    }
+    .table th {
+        background-color: #f9f9f9;
+        font-weight: bold;
+    }
+    .row-striped {
+        background-color: #f5f5f5;
+    }
+    .badge {
+        padding: 5px 10px;
+        border-radius: 3px;
+        font-size: 12px;
+        font-weight: bold;
+        text-transform: uppercase;
+    }
+    .badge-success {
+        background-color: #4CAF50;
+        color: white;
+    }
+    .badge-info {
+        background-color: #2196F3;
+        color: white;
+    }
+    .badge-warning {
+        background-color: #FF9800;
+        color: white;
+    }
+    .badge-danger {
+        background-color: #f44336;
+        color: white;
+    }
+    .badge-secondary {
+        background-color: #9E9E9E;
+        color: white;
+    }
+    .no-activities {
+        text-align: center;
+        padding: 30px;
+        color: #9E9E9E;
+    }
+    .mt-4 {
+        margin-top: 25px;
+    }
+    .staff-name {
+        color: #2196F3;
+        font-weight: bold;
+    }
+    .system-action {
+        color: #FF9800;
+        font-style: italic;
+    }
+    .user-action {
+        color: #9C27B0;
+    }
+</style>
+{% endblock %}

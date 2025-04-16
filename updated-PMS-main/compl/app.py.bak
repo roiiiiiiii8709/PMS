@@ -1,0 +1,2284 @@
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, Blueprint, g, abort
+import mysql.connector
+from datetime import datetime, timedelta
+import os
+import random
+import string
+from decimal import Decimal
+from db import get_db_connection
+
+app = Flask(__name__)
+app.secret_key = 'your_secret_key'  # Replace with your actual secret key if different
+
+# Function to normalize payment method to match database ENUM values exactly
+def normalize_payment_method(payment_method):
+    """Ensures payment method matches database ENUM values (cash, gcash, credit_card)
+    This prevents 'Data truncated for column' errors.
+    """
+    if not payment_method:
+        return None
+        
+    # Strip whitespace and convert to lowercase
+    payment_method = payment_method.strip().lower()
+    
+    # Map to valid ENUM values
+    valid_methods = {
+        'cash': 'cash',
+        'gcash': 'gcash',
+        'credit_card': 'credit_card',
+        'credit card': 'credit_card',
+        'creditcard': 'credit_card',
+        'g-cash': 'gcash',
+        'g cash': 'gcash'
+    }
+    
+    return valid_methods.get(payment_method, None)
+    
+# Function to normalize payment status to match database ENUM values
+def normalize_payment_status(payment_status):
+    """Ensures payment status matches database ENUM values (paid, unpaid, pending, rejected)
+    This prevents 'Data truncated for column' errors.
+    """
+    if not payment_status:
+        return None
+        
+    # Strip whitespace and convert to lowercase
+    payment_status = payment_status.strip().lower()
+    
+    # Map to valid ENUM values
+    valid_statuses = {
+        'paid': 'paid',
+        'unpaid': 'unpaid',
+        'pending': 'pending',
+        'rejected': 'rejected',
+        'not paid': 'unpaid',
+        'not_paid': 'unpaid',
+        'payment pending': 'pending',
+        'payment_pending': 'pending',
+        'awaiting payment': 'pending',
+        'awaiting_payment': 'pending',
+        'declined': 'rejected',
+        'reject': 'rejected',
+        'approve': 'paid',
+        'approved': 'paid',
+        'complete': 'paid',
+        'completed': 'paid'
+    }
+    
+    return valid_statuses.get(payment_status, None)
+
+# Function to update expired bookings
+def update_expired_bookings():
+    # This function has been optimized to improve login and dashboard performance
+    conn = None
+    cursor = None
+    updated_count = 0
+    
+    try:
+        # Get database connection with improved timeout handling
+        conn = get_db_connection()
+        if not conn:
+            flash('Database connection error. Unable to load dashboard data.', 'error')
+            return render_template('admin/dashboard.html', 
+                                  spots=[], 
+                                  spot_bookings={},
+                                  active_bookings={},
+                                  history_bookings={})
+                
+        cursor = conn.cursor(dictionary=True)
+        
+        # Get current time
+        now = datetime.now()
+        
+        # Optimize: Do a direct update with a LIMIT to prevent excessive processing
+        cursor.execute("""
+            UPDATE bookings
+            SET status = 'cancelled'
+            WHERE end_time < %s 
+              AND (status NOT IN ('cancelled') OR status IS NULL OR status = '')
+            LIMIT 50
+        """, (now,))
+        
+        updated_count = cursor.rowcount
+        
+        # Only process further if we actually updated bookings
+        if updated_count > 0:
+            # Get the spot IDs for the bookings we just updated
+            cursor.execute("""
+                SELECT booking_id, spot_id 
+                FROM bookings
+                WHERE status = 'cancelled' AND end_time < %s
+                LIMIT 50
+            """, (now,))
+            
+            updated_bookings = cursor.fetchall()
+            
+            # Bulk update the spots in a single query
+            if updated_bookings:
+                spot_ids = list(set([b['spot_id'] for b in updated_bookings]))
+                
+                if spot_ids:
+                    placeholders = ', '.join(['%s'] * len(spot_ids))
+                    cursor.execute(f"""
+                        UPDATE parking_spots 
+                        SET status = 'available' 
+                        WHERE spot_id IN ({placeholders})
+                    """, spot_ids)
+                
+                # Batch insert the log entries
+                for booking in updated_bookings:
+                    cursor.execute("""
+                        INSERT INTO staff_activity_log (staff_id, action_type, action_details, booking_id)
+                        VALUES (0, 'system', 'Booking automatically expired', %s)
+                    """, (booking['booking_id'],))
+        
+        conn.commit()
+        
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"Error updating expired bookings: {str(e)}")
+        
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+    
+    return updated_count
+
+# Home Route
+@app.route('/')
+def home():
+    return render_template('home.html')
+
+# Login Route
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    error = None
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        user_type = request.form.get('role', 'user')  # Changed from 'user_type' to 'role' to match form field
+        
+        # Set login time to measure performance - ensure it's timezone naive
+        login_start = datetime.now().replace(tzinfo=None)
+        
+        conn = None
+        cursor = None
+        try:
+            # Get database connection with improved timeout handling
+            conn = get_db_connection()
+            if not conn:
+                flash('Database connection error. Please try again later or contact support.', 'error')
+                return render_template('auth/login.html', error="Database connection failed. Please try again later.")
+                
+            cursor = conn.cursor(dictionary=True)
+            
+            # Force user to select appropriate role for their account type
+            if user_type == 'user':
+                cursor.execute("SELECT user_id, username, password FROM users WHERE username = %s", (username,))
+                user = cursor.fetchone()
+                if user and user['password'] == password:  # In real app, use password hashing
+                    session['user_id'] = user['user_id']
+                    session['username'] = user['username']
+                    session['role'] = 'user'
+                    session['user_type'] = 'user'  # For backward compatibility
+                    session['login_time'] = login_start.strftime("%Y-%m-%d %H:%M:%S")
+                    return redirect(url_for('user_dashboard'))
+                else:
+                    error = "Invalid username or password for User account"
+            elif user_type == 'staff':
+                cursor.execute("SELECT staff_id, username, password FROM staff WHERE username = %s", (username,))
+                staff = cursor.fetchone()
+                if staff and staff['password'] == password:  # In real app, use password hashing
+                    session['staff_id'] = staff['staff_id']
+                    session['username'] = staff['username']
+                    session['role'] = 'staff'
+                    session['user_type'] = 'staff'  # For backward compatibility
+                    session['login_time'] = login_start.strftime("%Y-%m-%d %H:%M:%S")
+                    return redirect(url_for('staff_dashboard'))
+                else:
+                    error = "Invalid username or password for Staff account"
+            elif user_type == 'admin':
+                cursor.execute("SELECT admin_id, username, password FROM admins WHERE username = %s", (username,))
+                admin = cursor.fetchone()
+                if admin and admin['password'] == password:  # In real app, use password hashing
+                    session['admin_id'] = admin['admin_id']
+                    session['username'] = admin['username']
+                    session['role'] = 'admin'
+                    session['user_type'] = 'admin'  # For backward compatibility
+                    # Store login time in session as string to avoid timezone issues
+                    session['login_time'] = login_start.strftime("%Y-%m-%d %H:%M:%S")
+                    # Initialize last_expired_check to prevent immediate check on dashboard load
+                    session['last_expired_check'] = login_start.strftime("%Y-%m-%d %H:%M:%S")
+                    return redirect(url_for('admin_dashboard'))
+                else:
+                    error = "Invalid username or password for Admin account"
+        except Exception as e:
+            error = f"Login error: {str(e)}"
+            print(f"Login exception: {str(e)}")
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+    
+    return render_template('auth/login.html', error=error)
+
+# Register Route
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    error = None
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        email = request.form.get('email')
+        phone = request.form.get('phone')
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Check if username already exists
+        cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
+        existing_user = cursor.fetchone()
+        
+        if existing_user:
+            error = "Username already exists"
+        else:
+            try:
+                cursor.execute(
+                    "INSERT INTO users (username, password, email, phone) VALUES (%s, %s, %s, %s)",
+                    (username, password, email, phone)  # In real app, hash the password
+                )
+                conn.commit()
+                flash('Registration successful! Please login.', 'success')
+                return redirect(url_for('login'))
+            except Exception as e:
+                conn.rollback()
+                error = f"Registration failed: {str(e)}"
+        
+        cursor.close()
+        conn.close()
+    
+    return render_template('auth/register.html', error=error)
+
+# Logout Route
+@app.route('/logout')
+def logout():
+    session.clear()
+    flash('You have been logged out.', 'info')
+    return redirect(url_for('login'))
+
+# User Dashboard
+@app.route('/user/dashboard')
+def user_dashboard():
+    if 'user_id' not in session:
+        flash('Please login to access this page.', 'error')
+        return redirect(url_for('login'))
+    
+    conn = None
+    cursor = None
+    bookings = []
+    parking_spots = []
+    
+    try:
+        # Get database connection with improved timeout handling
+        conn = get_db_connection()
+        if not conn:
+            flash('Database connection error. Unable to load dashboard data.', 'error')
+            return render_template('admin/dashboard.html', 
+                                  spots=[], 
+                                  spot_bookings={},
+                                  active_bookings={},
+                                  history_bookings={})
+                
+        cursor = conn.cursor(dictionary=True)
+        
+        # Get user bookings
+        cursor.execute("""
+            SELECT b.*, p.location, p.price_per_hour 
+            FROM bookings b
+            JOIN parking_spots p ON b.spot_id = p.spot_id
+            WHERE b.user_id = %s 
+            ORDER BY b.start_time DESC
+        """, (session['user_id'],))
+        bookings = cursor.fetchall()
+        
+        # Get available parking spots
+        cursor.execute("SELECT * FROM parking_spots WHERE status = 'available' ORDER BY spot_id")
+        parking_spots = cursor.fetchall()
+        
+    except Exception as e:
+        flash(f'Error loading dashboard: {str(e)}', 'error')
+    
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+    
+    return render_template('user/dashboard.html', bookings=bookings, parking_spots=parking_spots, 
+                         user_name=session.get('username'))
+
+# Create Booking
+@app.route('/user/create_booking', methods=['POST'])
+def create_booking():
+    if 'user_id' not in session:
+        flash('Please login to make a booking.', 'error')
+        return redirect(url_for('login'))
+    
+    spot_id = request.form.get('spot_id')
+    start_time = request.form.get('start_time')
+    end_time = request.form.get('end_time')
+    
+    if not all([spot_id, start_time, end_time]):
+        flash('Please provide all required information.', 'error')
+        return redirect(url_for('user_dashboard'))
+    
+    try:
+        start_datetime = datetime.strptime(start_time, '%Y-%m-%dT%H:%M')
+        end_datetime = datetime.strptime(end_time, '%Y-%m-%dT%H:%M')
+        
+        current_time = datetime.now()
+        if start_datetime < current_time:
+            flash('Start time must be in the future.', 'error')
+            return redirect(url_for('user_dashboard'))
+        
+        if end_datetime <= start_datetime:
+            flash('End time must be after start time.', 'error')
+            return redirect(url_for('user_dashboard'))
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Check if spot is available
+        cursor.execute("SELECT * FROM parking_spots WHERE spot_id = %s", (spot_id,))
+        spot = cursor.fetchone()
+        
+        if not spot:
+            flash('Selected parking spot does not exist.', 'error')
+            return redirect(url_for('user_dashboard'))
+        
+        if spot['status'] == 'occupied':
+            flash('This Spot is Already Occupied. Try Another Spot.', 'error')
+            return redirect(url_for('user_dashboard'))
+            
+        if spot['status'] != 'available':
+            flash('Selected parking spot is not available.', 'error')
+            return redirect(url_for('user_dashboard'))
+            
+        # Check for time conflicts with existing bookings
+        cursor.execute("""
+            SELECT * FROM bookings 
+            WHERE spot_id = %s 
+            AND ((start_time <= %s AND end_time > %s) OR (start_time < %s AND end_time >= %s) OR (start_time >= %s AND end_time <= %s))
+            AND status != 'declined'
+        """, (spot_id, end_datetime, start_datetime, end_datetime, start_datetime, start_datetime, end_datetime))
+        
+        conflicting_booking = cursor.fetchone()
+        if conflicting_booking:
+            flash('This Spot is Already Booked for That Day. Try Another Spot.', 'error')
+            return redirect(url_for('user_dashboard'))
+        
+        # Calculate hours and amount
+        duration = (end_datetime - start_datetime).total_seconds() / 3600
+        amount = Decimal(duration) * Decimal(spot['price_per_hour'])
+        
+        # Create booking - ensuring status is within allowed ENUM values
+        cursor.execute("""
+            INSERT INTO bookings (user_id, spot_id, start_time, end_time, status, payment_status, amount)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (session['user_id'], spot_id, start_datetime, end_datetime, 'pending', 'unpaid', amount))
+        
+        booking_id = cursor.lastrowid
+        
+        # Update parking spot status to 'reserved'
+        cursor.execute("UPDATE parking_spots SET status = 'reserved' WHERE spot_id = %s", (spot_id,))
+        
+        conn.commit()
+        flash('Booking created successfully. Please make payment to confirm.', 'success')
+        return redirect(url_for('user_dashboard'))
+    
+    except Exception as e:
+        flash(f'Error creating booking: {str(e)}', 'error')
+        return redirect(url_for('user_dashboard'))
+
+# User Profile
+@app.route('/user/profile', methods=['GET', 'POST'])
+def user_profile():
+    if 'user_id' not in session:
+        flash('Please login as a user to access this page.')
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    if request.method == 'POST':
+        username = request.form['username']
+        email = request.form['email']
+        phone = request.form.get('phone', '')
+        current_password = request.form.get('current_password', '')
+        new_password = request.form.get('new_password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        
+        # Get current user data to verify password
+        cursor.execute("SELECT * FROM users WHERE user_id = %s", (session['user_id'],))
+        user = cursor.fetchone()
+        
+        if not user or user['password'] != current_password:
+            flash('Current password is incorrect.', 'error')
+            return redirect(url_for('user_profile'))
+        
+        # Check if new password is provided and matches confirmation
+        if new_password:
+            if new_password != confirm_password:
+                flash('New passwords do not match.', 'error')
+                return redirect(url_for('user_profile'))
+            
+            # Update user profile with new password
+            cursor.execute("""
+                UPDATE users 
+                SET username = %s, email = %s, phone = %s, password = %s
+                WHERE user_id = %s
+            """, (username, email, phone, new_password, session['user_id']))
+        else:
+            # Update user profile without changing password
+            cursor.execute("""
+                UPDATE users 
+                SET username = %s, email = %s, phone = %s
+                WHERE user_id = %s
+            """, (username, email, phone, session['user_id']))
+        
+        conn.commit()
+        flash('Profile updated successfully!', 'success')
+        
+        # Update session username if it was changed
+        session['username'] = username
+        
+    # Get current user data
+    cursor.execute("SELECT * FROM users WHERE user_id = %s", (session['user_id'],))
+    user = cursor.fetchone()
+    
+    cursor.close()
+    conn.close()
+    
+    return render_template('user/profile.html', user=user)
+
+# User History
+@app.route('/user/history')
+def user_history():
+    if 'user_id' not in session:
+        flash('Please login to view your booking history.', 'error')
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    # Get all bookings for the user, ordered by start_time
+    cursor.execute("""
+        SELECT b.*, p.location, p.price_per_hour 
+        FROM bookings b
+        JOIN parking_spots p ON b.spot_id = p.spot_id
+        WHERE b.user_id = %s
+        ORDER BY b.start_time DESC
+    """, (session['user_id'],))
+    
+    bookings = cursor.fetchall()
+    
+    # Calculate duration and total cost for each booking
+    for booking in bookings:
+        # Convert datetime strings to datetime objects if needed
+        # Convert database timestamps to datetime objects
+        if isinstance(booking['start_time'], str):
+            start_time = datetime.strptime(booking['start_time'], '%Y-%m-%d %H:%M:%S')
+        else:
+            start_time = booking['start_time']
+            
+        if isinstance(booking['end_time'], str):
+            end_time = datetime.strptime(booking['end_time'], '%Y-%m-%d %H:%M:%S')
+        else:
+            end_time = booking['end_time']
+        
+        duration = (end_time - start_time).total_seconds() / 3600  # Convert to hours
+        booking['duration'] = round(duration, 1)
+        booking['total_cost'] = round(Decimal(duration) * Decimal(booking['price_per_hour']), 2)
+    
+    cursor.close()
+    conn.close()
+    
+    return render_template('user/history.html', bookings=bookings)
+
+# Cancel Booking
+@app.route('/user/cancel_booking/<int:booking_id>')
+def cancel_booking(booking_id):
+    if 'user_id' not in session:
+        flash('Please login to cancel a booking.', 'error')
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT * FROM bookings WHERE booking_id = %s AND user_id = %s", (booking_id, session['user_id']))
+        booking = cursor.fetchone()
+        if not booking or booking['status'] != 'pending':
+            flash('Invalid booking or cannot be cancelled.', 'error')
+        else:
+            cursor.execute("UPDATE bookings SET status = 'cancelled' WHERE booking_id = %s", (booking_id,))
+            cursor.execute("UPDATE parking_spots SET status = 'available' WHERE spot_id = %s", (booking['spot_id'],))
+            
+            # Add history entry for the cancelled booking
+            cursor.execute("""
+                INSERT INTO staff_activity_log (staff_id, action_type, action_details, booking_id)
+                VALUES (%s, %s, %s, %s)
+            """, (0, 'cancel', f"Booking #{booking_id} cancelled by user", booking_id))
+            
+            conn.commit()
+            flash('Booking cancelled successfully.', 'success')
+    except Exception as e:
+        conn.rollback()
+        flash(f'Error cancelling booking: {str(e)}', 'error')
+    finally:
+        cursor.close()
+        conn.close()
+    return redirect(url_for('user_dashboard'))
+
+# Staff Dashboard
+@app.route('/staff/dashboard')
+def staff_dashboard():
+    if 'staff_id' not in session:
+        flash('Please login as staff to access this page.', 'error')
+        return redirect(url_for('login'))
+    
+    # Update expired bookings first
+    updated_count = update_expired_bookings()
+    if updated_count > 0:
+        flash(f'Updated {updated_count} expired bookings and made spots available.', 'info')
+    
+    conn = None
+    cursor = None
+    pending_bookings = []
+    stats = {}
+    parking_spots = []
+    payment_details = {}
+    
+    try:
+        # Get database connection with improved timeout handling
+        conn = get_db_connection()
+        if not conn:
+            flash('Database connection error. Unable to load dashboard data.', 'error')
+            return render_template('admin/dashboard.html', 
+                                  spots=[], 
+                                  spot_bookings={},
+                                  active_bookings={},
+                                  history_bookings={})
+                
+        cursor = conn.cursor(dictionary=True)
+        
+        # Fetch pending bookings with user information
+        cursor.execute("""
+            SELECT b.*, u.username, u.email, p.location, p.price_per_hour
+            FROM bookings b
+            JOIN users u ON b.user_id = u.user_id
+            JOIN parking_spots p ON b.spot_id = p.spot_id
+            WHERE (b.status = 'pending' OR b.status IS NULL OR b.status = '')
+            AND b.status != 'confirmed' -- Not already confirmed
+            AND b.status != 'cancelled' -- Not cancelled
+            AND b.status != 'entry' -- Not already entered
+            AND b.status != 'exited' -- Not already exited
+            ORDER BY b.start_time ASC  -- Show nearest upcoming bookings first
+        """)
+        pending_bookings = cursor.fetchall()
+        
+        # Process bookings to check for conflicts
+        for booking in pending_bookings:
+            # Check if spot is currently occupied
+            cursor.execute("""
+                SELECT COUNT(*) as count FROM bookings 
+                WHERE spot_id = %s AND status = 'entry'
+            """, (booking['spot_id'],))
+            result = cursor.fetchone()
+            booking['spot_is_occupied'] = result['count'] > 0
+            
+            # Check for time conflicts with confirmed bookings
+            cursor.execute("""
+                SELECT COUNT(*) as count FROM bookings 
+                WHERE spot_id = %s AND status = 'confirmed'
+                AND ((start_time <= %s AND end_time >= %s) OR 
+                     (start_time <= %s AND end_time >= %s) OR
+                     (start_time >= %s AND end_time <= %s))
+            """, (booking['spot_id'], booking['start_time'], booking['start_time'], 
+                 booking['end_time'], booking['end_time'], booking['start_time'], booking['end_time']))
+            result = cursor.fetchone()
+            booking['has_time_conflict'] = result['count'] > 0
+        
+        # Get statistics
+        cursor.execute("SELECT COUNT(*) as total FROM bookings")
+        total_bookings = cursor.fetchone()['total']
+        
+        # Use same criteria as the pending_bookings query
+        cursor.execute("""
+            SELECT COUNT(*) as pending FROM bookings 
+            WHERE (status = 'pending' OR status IS NULL OR status = '')
+            AND status != 'confirmed'
+            AND status != 'cancelled'
+            AND status != 'entry'
+            AND status != 'exited'
+        """)
+        pending_count = cursor.fetchone()['pending']
+        
+        cursor.execute("SELECT COUNT(*) as confirmed FROM bookings WHERE status = 'confirmed'")
+        confirmed_bookings = cursor.fetchone()['confirmed']
+        
+        cursor.execute("SELECT COUNT(*) as parked FROM bookings WHERE status = 'entry'")
+        parked_vehicles = cursor.fetchone()['parked']
+        
+        cursor.execute("SELECT COUNT(*) as available FROM parking_spots WHERE status = 'available'")
+        available_spots = cursor.fetchone()['available']
+        
+        cursor.execute("SELECT COUNT(*) as total FROM parking_spots")
+        total_spots = cursor.fetchone()['total']
+        
+        cursor.execute("SELECT SUM(amount) as total FROM bookings WHERE payment_status = 'paid'")
+        result = cursor.fetchone()
+        total_revenue = result['total'] if result['total'] else 0
+        
+        # Get parking spots
+        cursor.execute("SELECT * FROM parking_spots ORDER BY spot_id")
+        parking_spots = cursor.fetchall()
+        
+        # Get payment details for quick view
+        cursor.execute("""
+            SELECT t.*, b.booking_id
+            FROM transactions t
+            RIGHT JOIN bookings b ON t.booking_id = b.booking_id
+        """)
+        payments = cursor.fetchall()
+        
+        for payment in payments:
+            # Skip null entries from RIGHT JOIN
+            if payment['booking_id'] is not None:
+                payment_details[payment['booking_id']] = payment
+        
+        # Compile statistics
+        stats = {
+            'total_bookings': total_bookings,
+            'pending_bookings': pending_count,
+            'confirmed_bookings': confirmed_bookings,
+            'parked_vehicles': parked_vehicles,
+            'available_spots': available_spots,
+            'total_spots': total_spots,
+            'total_revenue': total_revenue
+        }
+        
+    except Exception as e:
+        flash(f'Error loading dashboard: {str(e)}', 'error')
+    
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+    
+    return render_template('staff/dashboard.html', pending_bookings=pending_bookings, 
+                          stats=stats, parking_spots=parking_spots, payment_details=payment_details)
+
+# Staff - Verify Booking
+@app.route('/staff/verify_booking')
+def staff_verify_booking():
+    if 'staff_id' not in session:
+        flash('Please login as staff to access this page.', 'error')
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    cursor.execute("""
+        SELECT b.*, u.username, p.location, p.price_per_hour 
+        FROM bookings b
+        JOIN users u ON b.user_id = u.user_id
+        JOIN parking_spots p ON b.spot_id = p.spot_id
+        WHERE b.status = 'pending'
+        ORDER BY b.start_time
+    """)
+    
+    pending_bookings = cursor.fetchall()
+    
+    # Get payment details for each booking
+    cursor.execute("""
+        SELECT t.*, b.booking_id
+        FROM transactions t
+        JOIN bookings b ON t.booking_id = b.booking_id
+        WHERE b.status = 'pending'
+    """)
+    
+    payments = cursor.fetchall()
+    payment_details = {}
+    for payment in payments:
+        payment_details[payment['booking_id']] = payment
+    
+    cursor.close()
+    conn.close()
+    
+    return render_template('staff/verify_booking.html', pending_bookings=pending_bookings, payment_details=payment_details)
+
+# Staff - Handle Entry/Exit
+@app.route('/staff/handle_entry_exit', methods=['GET', 'POST'])
+def staff_handle_entry_exit():
+    if 'staff_id' not in session:
+        flash('Please login as staff to access this page.', 'error')
+        return redirect(url_for('login'))
+
+    success = False
+    message = ""
+    
+    if request.method == 'POST':
+        booking_id = request.form.get('booking_id')
+        action_type = request.form.get('action_type')
+        redirect_to = request.form.get('redirect_to', 'staff_dashboard')  # Default to staff_dashboard
+        
+        print(f"Processing {action_type} for booking ID {booking_id}, redirect to {redirect_to}")
+        
+        if booking_id and action_type:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            # First check if the booking exists and is in confirmed status
+            cursor.execute("""
+                SELECT b.*, p.spot_id, p.status as spot_status
+                FROM bookings b
+                JOIN parking_spots p ON b.spot_id = p.spot_id
+                WHERE b.booking_id = %s
+            """, (booking_id,))
+            
+            booking = cursor.fetchone()
+            
+            if booking:
+                print(f"Found booking: ID={booking['booking_id']}, Status={booking['status']}, Payment={booking['payment_status']}")
+                
+                # For entry: Booking must be confirmed and paid
+                if action_type == 'entry' and booking['status'] == 'confirmed' and booking['payment_status'] == 'paid':
+                    try:
+                        # Update booking status to 'entry' and set entry_time
+                        entry_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        print(f"Setting entry time to: {entry_time}")
+                        cursor.execute("UPDATE bookings SET status = 'entry', entry_time = %s WHERE booking_id = %s", 
+                                      (entry_time, booking_id))
+                        
+                        # Mark the parking spot as occupied
+                        cursor.execute("UPDATE parking_spots SET status = 'occupied' WHERE spot_id = %s", (booking['spot_id'],))
+                        
+                        message = f"Vehicle entry recorded for booking #{booking_id}."
+                        success = True
+                        
+                        conn.commit()
+                        print(f"Successfully recorded entry for booking ID {booking_id}")
+                        
+                        # Double-check the update was successful
+                        cursor.execute("SELECT status, entry_time FROM bookings WHERE booking_id = %s", (booking_id,))
+                        updated_booking = cursor.fetchone()
+                        print(f"After update: Status={updated_booking['status']}, Entry Time={updated_booking['entry_time']}")
+                        
+                        # Additional check - count all entry status bookings
+                        cursor.execute("SELECT COUNT(*) as count FROM bookings WHERE status = 'entry'")
+                        entry_count = cursor.fetchone()['count']
+                        print(f"After update: Total bookings with entry status: {entry_count}")
+                        
+                        # Redirect to appropriate page after successful entry
+                        flash(message, 'success')
+                        if redirect_to == 'staff_parked_vehicles':
+                            return redirect(url_for('staff_parked_vehicles'))
+                        else:
+                            return redirect(url_for('staff_dashboard'))
+                    except Exception as e:
+                        conn.rollback()
+                        print(f"Error recording entry: {str(e)}")
+                        message = f"Error recording entry: {str(e)}"
+                        flash(message, 'error')
+                
+                # For exit: Booking must have entry_time set (status should be 'entry')
+                elif action_type == 'exit' and booking['status'] == 'entry':
+                    try:
+                        # Update booking status to 'exited' and set exit_time
+                        cursor.execute("UPDATE bookings SET status = 'exited', exit_time = NOW() WHERE booking_id = %s", (booking_id,))
+                        
+                        # Mark the parking spot as available
+                        cursor.execute("UPDATE parking_spots SET status = 'available' WHERE spot_id = %s", (booking['spot_id'],))
+                        
+                        message = f"Vehicle exit recorded for booking #{booking_id}. Parking spot is now available."
+                        success = True
+                        
+                        conn.commit()
+                        print(f"Successfully recorded exit for booking ID {booking_id}")
+                        
+                        # Redirect to dashboard after successful exit
+                        flash(message, 'success')
+                        return redirect(url_for('staff_dashboard'))
+                    except Exception as e:
+                        conn.rollback()
+                        print(f"Error recording exit: {str(e)}")
+                        message = f"Error recording exit: {str(e)}"
+                        flash(message, 'error')
+                else:
+                    message = "Invalid action or booking status."
+                    flash(message, 'error')
+            else:
+                message = f"Booking #{booking_id} not found."
+                flash(message, 'error')
+            
+            cursor.close()
+            conn.close()
+    
+    # Fetch confirmed bookings for display
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("""
+        SELECT b.*, u.username, p.location, p.spot_id, p.status as spot_status, 
+               t.amount, t.payment_method, t.transaction_id
+        FROM bookings b 
+        JOIN users u ON b.user_id = u.user_id 
+        JOIN parking_spots p ON b.spot_id = p.spot_id 
+        LEFT JOIN transactions t ON b.booking_id = t.booking_id
+        WHERE b.status IN ('confirmed', 'entry', 'exited')
+        ORDER BY b.booking_id DESC
+    """)
+    
+    # Convert to list of dictionaries to ensure all fields are properly accessed
+    confirmed_bookings = []
+    for booking in cursor.fetchall():
+        # Ensure payment_status is properly visible in the template
+        booking_dict = dict(booking)
+        
+        # Add debugging to check if the payment status is properly available
+        print(f"Booking ID: {booking_dict['booking_id']}, Payment Status: {booking_dict['payment_status']}")
+        
+        # If for some reason payment_status is not updated in the DB, check transactions
+        if 'transaction_id' in booking_dict and booking_dict['transaction_id'] and booking_dict['payment_status'] != 'paid':
+            # If there's a transaction but status isn't paid, update it
+            print(f"Found transaction but payment not marked as paid. Updating.")
+            cursor.execute("UPDATE bookings SET payment_status = 'paid' WHERE booking_id = %s", (booking_dict['booking_id'],))
+            booking_dict['payment_status'] = 'paid'
+            conn.commit()
+        
+        confirmed_bookings.append(booking_dict)
+        
+    return render_template('staff/handle_entry_exit.html', 
+                        confirmed_bookings=confirmed_bookings, 
+                        message=message, 
+                        success=success)
+
+# Debug route to fix parked vehicles issue
+@app.route('/debug/fix_parked_vehicles')
+def debug_fix_parked_vehicles():
+    if 'staff_id' not in session:
+        flash('Please login as staff to access this page.', 'error')
+        return redirect(url_for('login'))
+        
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        # 1. Find any bookings with entry_time set but incorrect status
+        cursor.execute("""
+            UPDATE bookings
+            SET status = 'entry'
+            WHERE entry_time IS NOT NULL 
+              AND exit_time IS NULL 
+              AND status != 'entry'
+        """)
+        fixed_count = cursor.rowcount
+        
+        # 2. Get count of bookings with status 'entry' after fix
+        cursor.execute("SELECT COUNT(*) as count FROM bookings WHERE status = 'entry'")
+        entry_count = cursor.fetchone()['count']
+        
+        # 3. If no entries exist at all, create a test entry (if we have confirmed bookings)
+        if entry_count == 0:
+            cursor.execute("""
+                SELECT b.*, p.spot_id 
+                FROM bookings b
+                JOIN parking_spots p ON b.spot_id = p.spot_id
+                WHERE b.status = 'confirmed' AND b.payment_status = 'paid'
+                LIMIT 1
+            """)
+            
+            confirmed_booking = cursor.fetchone()
+            if confirmed_booking:
+                # Create a test entry
+                booking_id = confirmed_booking['booking_id']
+                spot_id = confirmed_booking['spot_id']
+                entry_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                
+                cursor.execute("UPDATE bookings SET status = 'entry', entry_time = %s WHERE booking_id = %s", 
+                              (entry_time, booking_id))
+                cursor.execute("UPDATE parking_spots SET status = 'occupied' WHERE spot_id = %s", (spot_id,))
+                
+                test_entry_created = True
+                message = f"Created test entry for booking #{booking_id}"
+            else:
+                test_entry_created = False
+                message = "No confirmed bookings available to create test entry"
+        else:
+            test_entry_created = False
+            message = f"No test entry needed, {entry_count} entries already exist"
+        
+        conn.commit()
+        flash(f"Fixed {fixed_count} bookings with wrong status. {message}", 'success')
+    except Exception as e:
+        conn.rollback()
+        flash(f"Error fixing parked vehicles: {str(e)}", 'error')
+    finally:
+        cursor.close()
+        conn.close()
+    
+    return redirect(url_for('staff_parked_vehicles'))
+
+# Staff - Parked Vehicles
+@app.route('/staff/parked_vehicles')
+def staff_parked_vehicles():
+    if 'staff_id' not in session:
+        flash('Please login as staff to access this page.', 'error')
+        return redirect(url_for('login'))
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    # Debug - check for any bookings with 'entry' status
+    cursor.execute("SELECT COUNT(*) as count FROM bookings WHERE status = 'entry'")
+    entry_count = cursor.fetchone()['count']
+    print(f"Total bookings with 'entry' status: {entry_count}")
+    
+    # Debug - check for any bookings with entry_time set
+    cursor.execute("SELECT COUNT(*) as count FROM bookings WHERE entry_time IS NOT NULL")
+    entry_time_count = cursor.fetchone()['count']
+    print(f"Total bookings with entry_time set: {entry_time_count}")
+    
+    # Get all currently parked vehicles - only check status='entry'
+    cursor.execute("""
+        SELECT b.*, u.username, p.location, p.spot_id
+        FROM bookings b 
+        JOIN users u ON b.user_id = u.user_id 
+        JOIN parking_spots p ON b.spot_id = p.spot_id 
+        WHERE b.status = 'entry'
+        ORDER BY b.entry_time DESC
+    """)
+    parked_vehicles = cursor.fetchall()
+    print(f"Found {len(parked_vehicles)} parked vehicles for staff_parked_vehicles page")
+    
+    # Debug output to troubleshoot
+    if len(parked_vehicles) == 0:
+        # Check if there are any vehicles that have entered but perhaps have a different status
+        cursor.execute("""
+            SELECT b.booking_id, b.status, b.entry_time, b.exit_time, b.payment_status, u.username
+            FROM bookings b 
+            JOIN users u ON b.user_id = u.user_id
+            WHERE b.entry_time IS NOT NULL 
+            ORDER BY b.entry_time DESC
+            LIMIT 10
+        """)
+        
+        debug_entries = cursor.fetchall()
+        print("DEBUG - Recent entries with any status:")
+        for entry in debug_entries:
+            print(f"Booking ID: {entry['booking_id']}, Status: {entry['status']}, " 
+                  f"Entry Time: {entry['entry_time']}, User: {entry['username']}")
+            
+        # If vehicles have entry_time set but not status='entry', try to fix them
+        if debug_entries and not parked_vehicles:
+            print("ATTEMPTING AUTO-REPAIR: Setting status='entry' for vehicles with entry_time but wrong status")
+            try:
+                cursor.execute("""
+                    UPDATE bookings
+                    SET status = 'entry'
+                    WHERE entry_time IS NOT NULL 
+                      AND exit_time IS NULL 
+                      AND status != 'entry'
+                """)
+                conn.commit()
+                print(f"Auto-fixed {cursor.rowcount} bookings")
+                
+                # Fetch the vehicles again after repair
+                cursor.execute("""
+                    SELECT b.*, u.username, p.location, p.spot_id
+                    FROM bookings b 
+                    JOIN users u ON b.user_id = u.user_id 
+                    JOIN parking_spots p ON b.spot_id = p.spot_id 
+                    WHERE b.status = 'entry'
+                    ORDER BY b.entry_time DESC
+                """)
+                parked_vehicles = cursor.fetchall()
+                print(f"After auto-repair: Found {len(parked_vehicles)} parked vehicles")
+            except Exception as e:
+                conn.rollback()
+                print(f"Error during auto-repair: {str(e)}")
+    
+    cursor.close()
+    conn.close()
+    
+    return render_template('staff/parked_vehicles.html', parked_vehicles=parked_vehicles)
+
+# Admin Dashboard
+@app.route('/admin/dashboard')
+def admin_dashboard():
+    if 'admin_id' not in session:
+        flash('Please login as admin to access this page.', 'error')
+        return redirect(url_for('login'))
+    
+    # Only update expired bookings occasionally (not on every page load)
+    # and only if we have good database connectivity
+    run_expiry_check = False
+    if not session.get('last_expired_check'):
+        run_expiry_check = True
+    else:
+        # Convert stored string time back to datetime for comparison
+        try:
+            # Ensure we're working with string format
+            last_check_str = str(session.get('last_expired_check'))
+            last_check_time = datetime.strptime(last_check_str, "%Y-%m-%d %H:%M:%S")
+            current_time = datetime.now()
+            time_diff = (current_time - last_check_time).total_seconds()
+            
+            # Explicit check to ensure we're comparing numbers
+            if isinstance(time_diff, (int, float)) and time_diff > 300:  # 5 minutes
+                run_expiry_check = True
+                print(f"Running expiry check after {time_diff} seconds")
+            else:
+                print(f"Skipping expiry check, only {time_diff} seconds since last check")
+        except (ValueError, TypeError) as e:
+            # If there's any error in conversion, just run the check
+            print(f"Error parsing last_expired_check: {e}")
+            run_expiry_check = True
+            
+    if run_expiry_check:
+        # Test database connection first
+        test_conn = get_db_connection()
+        if test_conn:
+            try:
+                updated_count = update_expired_bookings()
+                # Store as string to avoid timezone issues
+                session['last_expired_check'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                if updated_count > 0:
+                    flash(f'Updated {updated_count} expired bookings and made spots available.', 'info')
+            except Exception as e:
+                print(f"Error in update_expired_bookings: {e}")
+            finally:
+                test_conn.close()
+    
+    conn = None
+    cursor = None
+    parking_spots = []
+    spot_bookings = {}
+    active_bookings = {}
+    history_bookings = {}
+    
+    try:
+        # Get database connection with improved timeout handling
+        conn = get_db_connection()
+        if not conn:
+            flash('Database connection error. Unable to load dashboard data.', 'error')
+            return render_template('admin/dashboard.html', 
+                                  spots=[], 
+                                  spot_bookings={},
+                                  active_bookings={},
+                                  history_bookings={})
+                
+        cursor = conn.cursor(dictionary=True)
+        
+        # Get all parking spots
+        cursor.execute("SELECT * FROM parking_spots ORDER BY spot_id")
+        parking_spots = cursor.fetchall()
+        
+        # Get all non-available spots
+        non_available_spots = [spot['spot_id'] for spot in parking_spots 
+                              if spot['status'] != 'available']
+        
+        # Get active bookings separately to improve performance
+        cursor.execute("""
+            SELECT b.booking_id, b.spot_id, b.start_time, b.end_time, 
+                   b.status as booking_status, u.username
+            FROM bookings b
+            JOIN users u ON b.user_id = u.user_id
+            WHERE b.status NOT IN ('cancelled', 'exited')
+            ORDER BY b.start_time DESC
+            LIMIT 100
+        """)
+        active_results = cursor.fetchall()
+        
+        # Get historical bookings separately with a limit
+        cursor.execute("""
+            SELECT b.booking_id, b.spot_id, b.start_time, b.end_time, 
+                   b.status as booking_status, u.username
+            FROM bookings b
+            JOIN users u ON b.user_id = u.user_id
+            WHERE b.status IN ('cancelled', 'exited')
+            ORDER BY b.start_time DESC
+            LIMIT 50
+        """)
+        history_results = cursor.fetchall()
+        
+        # Create a map of spot_id to its active and historical bookings
+        active_bookings = {}
+        history_bookings = {}
+        
+        # Process active bookings
+        for booking in active_results:
+            spot_id = booking['spot_id']
+            if spot_id not in active_bookings:
+                active_bookings[spot_id] = []
+            active_bookings[spot_id].append(booking)
+            
+        # Process historical bookings
+        for booking in history_results:
+            spot_id = booking['spot_id']
+            if spot_id not in history_bookings:
+                history_bookings[spot_id] = []
+            history_bookings[spot_id].append(booking)
+                
+        # For backwards compatibility
+        spot_bookings = active_bookings
+    
+    except Exception as e:
+        flash(f'Error loading dashboard: {str(e)}', 'error')
+    
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+    
+    return render_template('admin/dashboard.html', parking_spots=parking_spots, spot_bookings=spot_bookings, history_bookings=history_bookings)
+
+# Admin Booking History
+@app.route('/admin/booking_history')
+def admin_booking_history():
+    if 'admin_id' not in session:
+        flash('Please login as admin to access this page.', 'error')
+        return redirect(url_for('login'))
+    
+    conn = None
+    cursor = None
+    activities = []
+    cancelled_bookings = []
+    
+    try:
+        # Get database connection with improved timeout handling
+        conn = get_db_connection()
+        if not conn:
+            flash('Database connection error. Unable to load dashboard data.', 'error')
+            return render_template('admin/dashboard.html', 
+                                  spots=[], 
+                                  spot_bookings={},
+                                  active_bookings={},
+                                  history_bookings={})
+                
+        cursor = conn.cursor(dictionary=True)
+        
+        # Get staff activity log entries
+        cursor.execute("""
+            SELECT sal.*, s.username as staff_username 
+            FROM staff_activity_log sal
+            LEFT JOIN staff s ON sal.staff_id = s.staff_id
+            ORDER BY sal.action_time DESC
+            LIMIT 50
+        """)
+        activities = cursor.fetchall()
+        
+        # Get cancelled bookings with simpler query structure
+        cursor.execute("""
+            SELECT b.booking_id, b.user_id, b.spot_id, b.start_time, b.end_time, b.status,
+                   u.username, p.location, p.price_per_hour
+            FROM bookings b
+            JOIN users u ON b.user_id = u.user_id
+            JOIN parking_spots p ON b.spot_id = p.spot_id
+            WHERE b.status = 'cancelled'
+            ORDER BY b.end_time DESC
+            LIMIT 50
+        """)
+        cancelled_bookings = cursor.fetchall()
+        
+        # Optionally get activity details in a separate query if needed
+        if cancelled_bookings:
+            booking_ids = [str(b['booking_id']) for b in cancelled_bookings]
+            if booking_ids:
+                try:
+                    booking_ids_str = ','.join(booking_ids)
+                    cursor.execute(f"""
+                        SELECT booking_id, action_time, action_details, action_type, staff_id
+                        FROM staff_activity_log
+                        WHERE booking_id IN ({booking_ids_str})
+                        ORDER BY action_time DESC
+                    """)
+                    action_details = cursor.fetchall()
+                    
+                    # Create a lookup dictionary
+                    action_lookup = {}
+                    for action in action_details:
+                        if action['booking_id'] not in action_lookup:
+                            action_lookup[action['booking_id']] = action
+                    
+                    # Add action details to booking records
+                    for booking in cancelled_bookings:
+                        if booking['booking_id'] in action_lookup:
+                            details = action_lookup[booking['booking_id']]
+                            booking['action_time'] = details['action_time']
+                            booking['action_details'] = details['action_details']
+                            booking['action_type'] = details['action_type']
+                            booking['staff_id'] = details['staff_id']
+                            
+                            # Get staff username if applicable
+                            if booking['staff_id']:
+                                cursor.execute("SELECT username FROM staff WHERE staff_id = %s", (booking['staff_id'],))
+                                staff = cursor.fetchone()
+                                if staff:
+                                    booking['staff_username'] = staff['username']
+                except Exception as e:
+                    print(f"Error fetching action details: {str(e)}")
+                    # Continue without action details
+        
+    except Exception as e:
+        flash(f'Error loading activity history: {str(e)}', 'error')
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+    
+    return render_template('admin/booking_history.html', 
+                           activities=activities, 
+                           cancelled_bookings=cancelled_bookings)
+
+# Add Parking Spot
+@app.route('/admin/add_spot', methods=['POST'])
+def add_spot():
+    if 'admin_id' not in session:
+        flash('Please login as admin to access this page.', 'error')
+        return redirect(url_for('login'))
+    
+    conn = None
+    cursor = None
+    
+    try:
+        spot_id = request.form.get('spot_id')
+        location = request.form.get('location')
+        price_per_hour = request.form.get('price_per_hour')
+        status = request.form.get('status', 'available')  # Default to available
+        
+        if location and price_per_hour and status:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            # If spot_id is provided, check if it already exists
+            if spot_id and spot_id.strip():
+                cursor.execute("SELECT * FROM parking_spots WHERE spot_id = %s", (spot_id,))
+                existing_spot = cursor.fetchone()
+                
+                if existing_spot:
+                    flash(f'A parking spot with ID {spot_id} already exists.', 'error')
+                    return redirect(url_for('admin_dashboard'))
+                else:
+                    # Insert with provided spot_id
+                    cursor.execute(
+                        "INSERT INTO parking_spots (spot_id, location, price_per_hour, status) VALUES (%s, %s, %s, %s)",
+                        (spot_id, location, price_per_hour, status)
+                    )
+            else:
+                # Auto-assign spot_id by inserting without specifying it
+                cursor.execute(
+                    "INSERT INTO parking_spots (location, price_per_hour, status) VALUES (%s, %s, %s)",
+                    (location, price_per_hour, status)
+                )
+                # Get the auto-assigned ID
+                cursor.execute("SELECT LAST_INSERT_ID()")
+                spot_id = cursor.fetchone()['LAST_INSERT_ID()']
+                
+                # Log admin activity
+                cursor.execute("""
+                    INSERT INTO admin_activity_log (admin_id, action_type, action_details, booking_id)
+                    VALUES (%s, %s, %s, NULL)
+                """, (session['admin_id'], 'add', f"Added new parking spot - ID: {spot_id}, location: {location}, price: {price_per_hour}", spot_id, 'spot'))
+                
+                conn.commit()
+                flash('New parking spot added successfully!', 'success')
+        else:
+            flash('Please provide all required information.', 'error')
+    
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        flash(f'Error adding parking spot: {str(e)}', 'error')
+    
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+            
+    return redirect(url_for('admin_dashboard'))
+
+# Edit Parking Spot
+@app.route('/admin/edit_spot/<int:spot_id>', methods=['GET', 'POST'])
+def edit_spot(spot_id):
+    if 'admin_id' not in session:
+        flash('Please login as admin to access this page.', 'error')
+        return redirect(url_for('login'))
+    
+    conn = None
+    cursor = None
+    
+    try:
+        # Get database connection with improved timeout handling
+        conn = get_db_connection()
+        if not conn:
+            flash('Database connection error. Unable to load dashboard data.', 'error')
+            return render_template('admin/dashboard.html', 
+                                  spots=[], 
+                                  spot_bookings={},
+                                  active_bookings={},
+                                  history_bookings={})
+                
+        cursor = conn.cursor(dictionary=True)
+        
+        if request.method == 'POST':
+            new_spot_id = request.form.get('spot_id')
+            location = request.form.get('location')
+            price_per_hour = request.form.get('price_per_hour')
+            status = request.form.get('status')
+            
+            if location and price_per_hour and status and new_spot_id:
+                try:
+                    # Check if spot ID is being changed
+                    if int(new_spot_id) != spot_id:
+                        # Check if the new spot ID already exists
+                        cursor.execute("SELECT * FROM parking_spots WHERE spot_id = %s", (new_spot_id,))
+                        existing_spot = cursor.fetchone()
+                        
+                        if existing_spot:
+                            flash(f'A parking spot with ID {new_spot_id} already exists.', 'error')
+                            return redirect(url_for('edit_spot', spot_id=spot_id))
+                        
+                        # First, get all the existing spot data
+                        cursor.execute("SELECT * FROM parking_spots WHERE spot_id = %s", (spot_id,))
+                        current_spot = cursor.fetchone()
+                        
+                        # Create a new spot with the new ID but same data
+                        cursor.execute("""
+                            INSERT INTO parking_spots (spot_id, location, status, price_per_hour)
+                            VALUES (%s, %s, %s, %s)
+                        """, (new_spot_id, location, status, price_per_hour))
+                        
+                        # Now update all related bookings to use the new spot_id
+                        cursor.execute(
+                            "UPDATE bookings SET spot_id = %s WHERE spot_id = %s",
+                            (new_spot_id, spot_id)
+                        )
+                        
+                        # Finally, delete the old spot
+                        cursor.execute("DELETE FROM parking_spots WHERE spot_id = %s", (spot_id,))
+                        
+                        # Log activity with spot ID change
+                        action_details = f"Changed spot ID from {spot_id} to {new_spot_id}. Updated location: {location}, price: {price_per_hour}, status: {status}"
+                    else:
+                        # Just update other fields
+                        cursor.execute(
+                            "UPDATE parking_spots SET location = %s, price_per_hour = %s, status = %s WHERE spot_id = %s",
+                            (location, price_per_hour, status, spot_id)
+                        )
+                        
+                        # Log activity without spot ID change
+                        action_details = f"Updated spot details - location: {location}, price: {price_per_hour}, status: {status}"
+                    
+                    # Log admin activity
+                    cursor.execute("""
+                        INSERT INTO admin_activity_log (admin_id, action_type, action_details, booking_id)
+                        VALUES (%s, %s, %s, NULL)
+                    """, (session['admin_id'], 'edit', action_details, spot_id, 'spot'))
+                    
+                    conn.commit()
+                    flash('Parking spot updated successfully!', 'success')
+                    return redirect(url_for('admin_dashboard'))
+                    
+                except Exception as e:
+                    if conn:
+                        conn.rollback()
+                    flash(f'Error updating parking spot: {str(e)}', 'error')
+                    return redirect(url_for('edit_spot', spot_id=spot_id))
+        
+        # Get current spot data
+        cursor.execute("SELECT * FROM parking_spots WHERE spot_id = %s", (spot_id,))
+        spot = cursor.fetchone()
+        
+        if not spot:
+            flash('Parking spot not found.', 'error')
+            return redirect(url_for('admin_dashboard'))
+            
+        return render_template('admin/edit_spot.html', spot=spot)
+    
+    except Exception as e:
+        flash(f'Database error: {str(e)}', 'error')
+        return redirect(url_for('admin_dashboard'))
+    
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+# Delete Parking Spot
+@app.route('/admin/delete_spot/<int:spot_id>')
+def delete_spot(spot_id):
+    if 'admin_id' not in session:
+        flash('Please login as admin to access this page.', 'error')
+        return redirect(url_for('login'))
+    
+    conn = None
+    cursor = None
+    
+    try:
+        # Get database connection with improved timeout handling
+        conn = get_db_connection()
+        if not conn:
+            flash('Database connection error. Unable to load dashboard data.', 'error')
+            return render_template('admin/dashboard.html', 
+                                  spots=[], 
+                                  spot_bookings={},
+                                  active_bookings={},
+                                  history_bookings={})
+                
+        cursor = conn.cursor(dictionary=True)
+        
+        # Check if there are any bookings for this spot
+        cursor.execute("SELECT COUNT(*) as booking_count FROM bookings WHERE spot_id = %s", (spot_id,))
+        booking_count = cursor.fetchone()['booking_count']
+        
+        if booking_count > 0:
+            flash('Cannot delete this spot as it has existing bookings.', 'error')
+        else:
+            # Get spot details for the activity log
+            cursor.execute("SELECT * FROM parking_spots WHERE spot_id = %s", (spot_id,))
+            spot = cursor.fetchone()
+            
+            if spot:
+                # Delete the spot
+                cursor.execute("DELETE FROM parking_spots WHERE spot_id = %s", (spot_id,))
+                
+                # Log admin activity
+                action_details = f"Deleted parking spot - ID: {spot_id}, location: {spot['location']}, price: {spot['price_per_hour']}"
+                cursor.execute("""
+                    INSERT INTO admin_activity_log (admin_id, action_type, action_details, booking_id)
+                    VALUES (%s, %s, %s, NULL)
+                """, (session['admin_id'], 'delete', action_details, spot_id, 'spot'))
+                
+                conn.commit()
+                flash('Parking spot deleted successfully!', 'success')
+            else:
+                flash('Parking spot not found.', 'error')
+    
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        flash(f'Error deleting parking spot: {str(e)}', 'error')
+    
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+            
+    return redirect(url_for('admin_dashboard'))
+
+# Generate Report
+@app.route('/admin/generate_report', methods=['GET', 'POST'])
+def generate_report():
+    if 'admin_id' not in session:
+        flash('Please login as admin to access this page.', 'error')
+        return redirect(url_for('login'))
+    
+    report_data = None
+    report_type = request.form.get('report_type') if request.method == 'POST' else None
+    start_date = None
+    end_date = None
+    report_title = None
+    
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    if report_type:
+        # Default date range (last 30 days)
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=30)
+        
+        # If custom date range provided
+        custom_start = request.form.get('start_date')
+        custom_end = request.form.get('end_date')
+        
+        if custom_start and custom_end:
+            try:
+                start_date = datetime.strptime(custom_start, '%Y-%m-%d')
+                end_date = datetime.strptime(custom_end + ' 23:59:59', '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                flash('Invalid date format. Please use YYYY-MM-DD format.', 'error')
+        
+        # Format dates for SQL
+        start_date_str = start_date.strftime('%Y-%m-%d %H:%M:%S')
+        end_date_str = end_date.strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Format dates for display
+        start_date_display = start_date.strftime('%Y-%m-%d')
+        end_date_display = end_date.strftime('%Y-%m-%d')
+        
+        if report_type == 'bookings':
+            # Booking Report
+            cursor.execute("""
+                SELECT b.*, u.username, p.location, p.price_per_hour,
+                       (CASE 
+                         WHEN b.status = 'confirmed' THEN 'Confirmed'
+                         WHEN b.status = 'pending' THEN 'Pending'
+                         WHEN b.status = 'cancelled' THEN 'Cancelled'
+                         ELSE b.status
+                       END) as status_display
+                FROM bookings b
+                JOIN users u ON b.user_id = u.user_id
+                JOIN parking_spots p ON b.spot_id = p.spot_id
+                WHERE b.start_time BETWEEN %s AND %s
+                ORDER BY b.start_time DESC
+            """, (start_date_str, end_date_str))
+            
+            bookings = cursor.fetchall()
+            
+            # Process bookings data for display
+            for booking in bookings:
+                # Format dates for display
+                if booking['start_time']:
+                    booking['start_time'] = booking['start_time'].strftime('%Y-%m-%d %H:%M')
+                if booking['end_time']:
+                    booking['end_time'] = booking['end_time'].strftime('%Y-%m-%d %H:%M')
+            
+            # Calculate statistics
+            total_bookings = len(bookings)
+            confirmed_bookings = sum(1 for b in bookings if b['status'] == 'confirmed')
+            total_revenue = sum(float(b['amount'] or 0) for b in bookings if b['payment_status'] == 'paid')
+            
+            report_data = bookings
+            report_title = "Booking Activity Report"
+            
+            # Return data with Jinja template variables
+            return render_template(
+                'admin/generate_report.html', 
+                report_data=report_data,
+                report_type=report_type,
+                report_title=report_title,
+                start_date=start_date_display,
+                end_date=end_date_display,
+                total_bookings=total_bookings,
+                confirmed_bookings=confirmed_bookings,
+                total_revenue=total_revenue
+            )
+            
+        elif report_type == 'revenue':
+            # Revenue Report
+            # Get daily revenue
+            cursor.execute("""
+                SELECT 
+                    DATE(b.start_time) as date,
+                    COUNT(b.booking_id) as bookings,
+                    COALESCE(SUM(CASE WHEN b.payment_status = 'paid' THEN b.amount ELSE 0 END), 0) as revenue
+                FROM bookings b
+                WHERE b.start_time BETWEEN %s AND %s
+                GROUP BY DATE(b.start_time)
+                ORDER BY date
+            """, (start_date_str, end_date_str))
+            
+            daily_revenue = cursor.fetchall()
+            
+            # Calculate aggregate statistics
+            total_revenue = sum(float(day['revenue']) for day in daily_revenue)
+            total_bookings = sum(day['bookings'] for day in daily_revenue)
+            
+            # Calculate days between dates
+            days_diff = (end_date - start_date).days or 1  # Avoid division by zero
+            avg_daily_revenue = total_revenue / days_diff
+            
+            report_data = daily_revenue
+            report_title = "Revenue Analysis Report"
+            
+            # Return data with Jinja template variables
+            return render_template(
+                'admin/generate_report.html', 
+                report_data=report_data,
+                report_type=report_type,
+                report_title=report_title,
+                start_date=start_date_display,
+                end_date=end_date_display,
+                total_revenue=total_revenue,
+                total_bookings=total_bookings,
+                avg_daily_revenue=round(avg_daily_revenue, 2)
+            )
+            
+        elif report_type == 'occupancy':
+            # Occupancy Report
+            cursor.execute("""
+                SELECT p.location,
+                       COUNT(b.booking_id) as total_bookings,
+                       SUM(TIMESTAMPDIFF(HOUR, b.start_time, b.end_time)) as hours,
+                       (COUNT(b.booking_id) * 100 / 
+                        (SELECT COUNT(*) FROM parking_spots)) as occupancy_rate
+                FROM parking_spots p
+                LEFT JOIN bookings b ON p.spot_id = b.spot_id AND 
+                                       b.start_time BETWEEN %s AND %s AND
+                                       (b.status = 'confirmed' OR b.status = 'pending')
+                GROUP BY p.location
+                ORDER BY total_bookings DESC
+            """, (start_date_str, end_date_str))
+            
+            occupancy_data = cursor.fetchall()
+            
+            # Calculate statistics
+            total_hours = sum(spot['hours'] or 0 for spot in occupancy_data)
+            
+            # Get peak and average occupancy
+            cursor.execute("SELECT COUNT(*) as total_spots FROM parking_spots")
+            total_spots = cursor.fetchone()['total_spots']
+            
+            if occupancy_data:
+                occupancy_rates = [spot.get('occupancy_rate', 0) or 0 for spot in occupancy_data]
+                avg_occupancy = sum(occupancy_rates) / len(occupancy_rates)
+                peak_occupancy = max(occupancy_rates)
+            else:
+                avg_occupancy = 0
+                peak_occupancy = 0
+            
+            report_data = occupancy_data
+            report_title = "Parking Occupancy Report"
+            
+            # Return data with Jinja template variables
+            return render_template(
+                'admin/generate_report.html', 
+                report_data=report_data,
+                report_type=report_type,
+                report_title=report_title,
+                start_date=start_date_display,
+                end_date=end_date_display,
+                avg_occupancy=round(avg_occupancy, 1),
+                peak_occupancy=round(peak_occupancy, 1),
+                total_hours=total_hours
+            )
+    
+    cursor.close()
+    conn.close()
+    
+    return render_template('admin/generate_report.html')
+
+# Admin - Activity History
+@app.route('/admin/activity_history')
+def admin_activity_history():
+    if 'admin_id' not in session:
+        flash('Please login as admin to access this page.', 'error')
+        return redirect(url_for('login'))
+        
+    conn = None
+    cursor = None
+    activities = []
+    
+    try:
+        # Get database connection with improved timeout handling
+        conn = get_db_connection()
+        if not conn:
+            flash('Database connection error. Unable to load dashboard data.', 'error')
+            return render_template('admin/dashboard.html', 
+                                  spots=[], 
+                                  spot_bookings={},
+                                  active_bookings={},
+                                  history_bookings={})
+                
+        cursor = conn.cursor(dictionary=True)
+        
+        # Check if admin_activity_log table exists
+        cursor.execute("""
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = DATABASE() 
+            AND table_name = 'admin_activity_log'
+        """)
+        
+        table_exists = cursor.fetchone() is not None
+        
+        # Create table if it doesn't exist
+        if not table_exists:
+            cursor.execute("""
+                CREATE TABLE admin_activity_log (
+                    log_id INT AUTO_INCREMENT PRIMARY KEY,
+                    admin_id INT NOT NULL,
+                    action_type VARCHAR(50) NOT NULL,
+                    action_details TEXT,
+                    target_id INT,
+                    target_type VARCHAR(50),
+                    action_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (admin_id) REFERENCES admins(admin_id)
+                )
+            """)
+            conn.commit()
+        
+        # Get all admin activity
+        cursor.execute("""
+            SELECT al.*, a.username as admin_username
+            FROM admin_activity_log al
+            JOIN admins a ON al.admin_id = a.admin_id
+            ORDER BY al.action_time DESC
+        """)
+        activities = cursor.fetchall()
+        
+    except Exception as e:
+        flash(f'Error retrieving activity history: {str(e)}', 'error')
+    
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+    
+    return render_template('admin/activity_history.html', activities=activities)
+
+# API Routes
+@app.route('/api/payment_details/<int:booking_id>')
+def api_payment_details(booking_id):
+    if 'staff_id' not in session:
+        return jsonify({"error": "Unauthorized access"}), 401
+    
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    # Get booking details
+    cursor.execute("""
+        SELECT b.*, u.username, p.location, p.price_per_hour
+        FROM bookings b
+        JOIN users u ON b.user_id = u.user_id
+        JOIN parking_spots p ON b.spot_id = p.spot_id
+        WHERE b.booking_id = %s
+    """, (booking_id,))
+    booking = cursor.fetchone()
+    
+    if not booking:
+        cursor.close()
+        conn.close()
+        return jsonify({"error": "Booking not found"}), 404
+    
+    # Get transaction if it exists
+    cursor.execute("SELECT * FROM transactions WHERE booking_id = %s", (booking_id,))
+    transaction = cursor.fetchone()
+    
+    cursor.close()
+    conn.close()
+    
+    # Prepare response data
+    response = {
+        "booking_id": booking['booking_id'],
+        "username": booking['username'],
+        "location": booking['location'],
+        "start_time": booking['start_time'].strftime('%m/%d/%Y %H:%M') if booking['start_time'] else None,
+        "end_time": booking['end_time'].strftime('%m/%d/%Y %H:%M') if booking['end_time'] else None,
+        "status": booking['payment_status'] or "unpaid",  # Changed to match what JavaScript expects
+        "payment_status": booking['payment_status'] or "unpaid",
+        "amount": float(booking['amount']) if booking['amount'] else 0
+    }
+    
+    # Add transaction details if available
+    if transaction:
+        response.update({
+            "transaction_id": transaction['transaction_id'],
+            "payment_method": transaction['payment_method'],
+            "payment_date": transaction['payment_date'].strftime('%m/%d/%Y %H:%M') if transaction.get('payment_date') else None,
+            "payment_reference": transaction.get('payment_reference', 'Not available')
+        })
+    else:
+        response.update({
+            "transaction_id": "Not available",
+            "payment_method": "Not paid",
+            "payment_date": None,
+            "payment_reference": "Not available"
+        })
+    
+    return jsonify(response)
+
+@app.route('/user/make_payment/<int:booking_id>', methods=['GET', 'POST'])
+def make_payment(booking_id):
+    if 'user_id' not in session:
+        flash('Please login to make a payment.', 'error')
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        # Get booking details
+        cursor.execute("""
+            SELECT b.*, p.location, p.price_per_hour 
+            FROM bookings b
+            JOIN parking_spots p ON b.spot_id = p.spot_id
+            WHERE b.booking_id = %s AND b.user_id = %s
+        """, (booking_id, session['user_id']))
+        
+        booking = cursor.fetchone()
+        
+        if not booking:
+            flash('Booking not found.', 'error')
+            return redirect(url_for('user_dashboard'))
+        
+        from datetime import datetime
+        # Ensure start_time and end_time are datetime objects
+        start_time = booking['start_time']
+        end_time = booking['end_time']
+        if isinstance(start_time, str):
+            start_time = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+        if isinstance(end_time, str):
+            end_time = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+        # Ensure price_per_hour is Decimal
+        price_per_hour = Decimal(booking['price_per_hour'])
+        duration = (end_time - start_time).total_seconds() / 3600  # Convert to hours
+        total_cost = Decimal(duration) * price_per_hour
+
+        if request.method == 'POST':
+            payment_method = request.form.get('payment_method')
+            # Normalize payment method
+            normalized_payment_method = normalize_payment_method(payment_method)
+            if normalized_payment_method in ['cash', 'gcash', 'credit_card']:
+                # Create transaction record
+                cursor.execute(
+                    "INSERT INTO transactions (booking_id, payment_method, amount) VALUES (%s, %s, %s)",
+                    (booking_id, normalized_payment_method, round(total_cost, 2))
+                )
+                # Update booking status and amount
+                cursor.execute(
+                    "UPDATE bookings SET payment_status = 'pending', status = 'pending_payment', amount = %s WHERE booking_id = %s",
+                    (round(total_cost, 2), booking_id)
+                )
+                conn.commit()
+                flash('Payment submitted successfully. Please wait for staff verification.', 'success')
+                return redirect(url_for('user_dashboard'))
+            else:
+                flash('Invalid payment method.', 'error')
+        
+        # Pass both total_cost and duration to the template
+        return render_template('user/booking.html', 
+                            booking=booking, 
+                            duration=round(duration, 1), 
+                            total_cost=round(total_cost, 2))
+        
+    except Exception as e:
+        conn.rollback()
+        flash(f'Error processing payment: {str(e)}', 'error')
+        return redirect(url_for('user_dashboard'))
+    finally:
+        cursor.close()
+        conn.close()
+
+# Staff - Approve Booking
+@app.route('/staff/approve_booking/<int:booking_id>')
+def approve_booking(booking_id):
+    if 'staff_id' not in session:
+        flash('Please login as staff to access this page.', 'error')
+        return redirect(url_for('login'))
+        
+    conn = None
+    cursor = None
+    
+    try:
+        # Get database connection with improved timeout handling
+        conn = get_db_connection()
+        if not conn:
+            flash('Database connection error. Unable to load dashboard data.', 'error')
+            return render_template('admin/dashboard.html', 
+                                  spots=[], 
+                                  spot_bookings={},
+                                  active_bookings={},
+                                  history_bookings={})
+                
+        cursor = conn.cursor(dictionary=True)
+        
+        # Get booking details
+        cursor.execute("SELECT * FROM bookings WHERE booking_id = %s", (booking_id,))
+        booking = cursor.fetchone()
+        
+        if not booking:
+            flash('Booking not found.', 'error')
+            return redirect(url_for('staff_dashboard'))
+            
+        # Check if the booking status is not in a pending state
+        # (pending, NULL, or empty status are all considered pending)
+        if booking['status'] not in ['pending', None, ''] or \
+           booking['status'] in ['confirmed', 'cancelled', 'entry', 'exited']:
+            flash('This booking is not pending approval.', 'error')
+            return redirect(url_for('staff_dashboard'))
+        
+        # Update booking status to confirmed
+        cursor.execute("UPDATE bookings SET status = 'confirmed' WHERE booking_id = %s", (booking_id,))
+        
+        # Update parking spot status to reserved
+        cursor.execute("UPDATE parking_spots SET status = 'reserved' WHERE spot_id = %s", (booking['spot_id'],))
+        
+        # Log staff activity
+        cursor.execute("""
+            INSERT INTO staff_activity_log (staff_id, action_type, action_details, booking_id)
+            VALUES (%s, %s, %s, %s)
+        """, (session['staff_id'], 'approve', f"Approved booking #{booking_id}", booking_id))
+        
+        conn.commit()
+        flash('Booking has been approved successfully!', 'success')
+        
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        flash(f'Error approving booking: {str(e)}', 'error')
+    
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+    
+    return redirect(url_for('staff_dashboard'))
+
+# Staff - Decline Booking
+@app.route('/staff/decline_booking/<int:booking_id>')
+def decline_booking(booking_id):
+    if 'staff_id' not in session:
+        flash('Please login as staff to access this page.', 'error')
+        return redirect(url_for('login'))
+        
+    conn = None
+    cursor = None
+    
+    try:
+        # Get database connection with improved timeout handling
+        conn = get_db_connection()
+        if not conn:
+            flash('Database connection error. Unable to load dashboard data.', 'error')
+            return render_template('admin/dashboard.html', 
+                                  spots=[], 
+                                  spot_bookings={},
+                                  active_bookings={},
+                                  history_bookings={})
+                
+        cursor = conn.cursor(dictionary=True)
+        
+        # Get booking details
+        cursor.execute("SELECT * FROM bookings WHERE booking_id = %s", (booking_id,))
+        booking = cursor.fetchone()
+        
+        if not booking:
+            flash('Booking not found.', 'error')
+            return redirect(url_for('staff_dashboard'))
+            
+        # Check if the booking status is not in a pending state
+        # (pending, NULL, or empty status are all considered pending)
+        if booking['status'] not in ['pending', None, ''] or \
+           booking['status'] in ['confirmed', 'cancelled', 'entry', 'exited']:
+            flash('This booking is not pending approval.', 'error')
+            return redirect(url_for('staff_dashboard'))
+        
+        # Update booking status to cancelled
+        cursor.execute("UPDATE bookings SET status = 'cancelled' WHERE booking_id = %s", (booking_id,))
+        
+        # Ensure parking spot remains available
+        cursor.execute("UPDATE parking_spots SET status = 'available' WHERE spot_id = %s", (booking['spot_id'],))
+        
+        # Log staff activity
+        cursor.execute("""
+            INSERT INTO staff_activity_log (staff_id, action_type, action_details, booking_id)
+            VALUES (%s, %s, %s, %s)
+        """, (session['staff_id'], 'decline', f"Declined booking #{booking_id}", booking_id))
+        
+        conn.commit()
+        flash('Booking has been declined.', 'success')
+        
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        flash(f'Error declining booking: {str(e)}', 'error')
+    
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+    
+    return redirect(url_for('staff_dashboard'))
+
+# Staff - Activity History
+@app.route('/staff/activity_history')
+def staff_activity_history():
+    if 'staff_id' not in session:
+        flash('Please login as staff to access this page.', 'error')
+        return redirect(url_for('login'))
+        
+    conn = None
+    cursor = None
+    activities = []
+    
+    try:
+        # Get database connection with improved timeout handling
+        conn = get_db_connection()
+        if not conn:
+            flash('Database connection error. Unable to load dashboard data.', 'error')
+            return render_template('admin/dashboard.html', 
+                                  spots=[], 
+                                  spot_bookings={},
+                                  active_bookings={},
+                                  history_bookings={})
+                
+        cursor = conn.cursor(dictionary=True)
+        
+        # Check if staff_activity_log table exists and create if needed
+        cursor.execute("""
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = DATABASE() 
+            AND table_name = 'staff_activity_log'
+        """)
+        
+        table_exists = cursor.fetchone() is not None
+        
+        if not table_exists:
+            cursor.execute("""
+                CREATE TABLE staff_activity_log (
+                    log_id INT AUTO_INCREMENT PRIMARY KEY,
+                    staff_id INT NOT NULL,
+                    action_type VARCHAR(50) NOT NULL,
+                    action_details TEXT,
+                    booking_id INT,
+                    action_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (staff_id) REFERENCES staff(staff_id),
+                    FOREIGN KEY (booking_id) REFERENCES bookings(booking_id)
+                )
+            """)
+            conn.commit()
+        
+        # Get activity history with related details
+        cursor.execute("""
+            SELECT sal.*, s.username as staff_username, b.spot_id, u.username as user_username
+            FROM staff_activity_log sal
+            JOIN staff s ON sal.staff_id = s.staff_id
+            LEFT JOIN bookings b ON sal.booking_id = b.booking_id
+            LEFT JOIN users u ON b.user_id = u.user_id
+            ORDER BY sal.action_time DESC
+        """)
+        activities = cursor.fetchall()
+        
+    except Exception as e:
+        flash(f'Error retrieving activity history: {str(e)}', 'error')
+    
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+    
+    return render_template('staff/activity_history.html', activities=activities)
+
+@app.route('/admin/download_report')
+def download_report():
+    if 'admin_id' not in session:
+        flash('Please login as admin to access this page.', 'error')
+        return redirect(url_for('login'))
+    
+    # Get report parameters from the request
+    report_type = request.args.get('report_type')
+    start_date_str = request.args.get('start_date')
+    end_date_str = request.args.get('end_date')
+    
+    # Check if required parameters are provided
+    if not all([report_type, start_date_str, end_date_str]):
+        flash('Missing required parameters for report download.', 'error')
+        return redirect(url_for('generate_report'))
+    
+    # Parse dates
+    try:
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+        # Set end date to end of day
+        end_date = end_date.replace(hour=23, minute=59, second=59)
+    except ValueError:
+        flash('Invalid date format. Please use YYYY-MM-DD.', 'error')
+        return redirect(url_for('generate_report'))
+    
+    conn = None
+    cursor = None
+    csv_data = []
+    filename = f"{report_type}_report_{start_date_str}_to_{end_date_str}.csv"
+    
+    try:
+        # Get database connection with improved timeout handling
+        conn = get_db_connection()
+        if not conn:
+            flash('Database connection error. Unable to load dashboard data.', 'error')
+            return render_template('admin/dashboard.html', 
+                                  spots=[], 
+                                  spot_bookings={},
+                                  active_bookings={},
+                                  history_bookings={})
+                
+        cursor = conn.cursor(dictionary=True)
+        
+        # Generate different reports based on the type
+        if report_type == 'bookings':
+            # Headers for bookings report
+            headers = ["Booking ID", "User", "Spot Location", "Start Time", "End Time", 
+                      "Duration (hours)", "Status", "Amount"]
+            
+            # Get booking data
+            cursor.execute("""
+                SELECT b.booking_id, u.username, p.location, 
+                       b.start_time, b.end_time, b.status, b.amount
+                FROM bookings b
+                JOIN users u ON b.user_id = u.user_id
+                JOIN parking_spots p ON b.spot_id = p.spot_id
+                WHERE b.start_time BETWEEN %s AND %s
+                ORDER BY b.start_time DESC
+            """, (start_date, end_date))
+            
+            bookings = cursor.fetchall()
+            csv_data.append(','.join(headers))
+            
+            for booking in bookings:
+                # Calculate duration in hours
+                if booking['start_time'] and booking['end_time']:
+                    duration = (booking['end_time'] - booking['start_time']).total_seconds() / 3600
+                    duration = round(duration, 1)
+                else:
+                    duration = 0
+                
+                # Format dates for CSV - add leading apostrophe to force Excel to treat it as text
+                start_time = f"'{booking['start_time'].strftime('%m-%d-%Y %I:%M %p')}'" if booking['start_time'] else ''
+                end_time = f"'{booking['end_time'].strftime('%m-%d-%Y %I:%M %p')}'" if booking['end_time'] else ''
+                
+                # Prepare amount with proper formatting
+                amount = f"{float(booking['amount']):.2f}" if booking['amount'] else "0.00"
+                
+                # Create CSV row
+                row = [
+                    str(booking['booking_id']),
+                    booking['username'],
+                    booking['location'],
+                    start_time,
+                    end_time,
+                    str(duration),
+                    booking['status'] or 'unknown',
+                    amount
+                ]
+                
+                # Escape fields containing commas by enclosing in quotes
+                escaped_row = []
+                for field in row:
+                    if ',' in field:
+                        escaped_row.append(f'"{field}"')
+                    else:
+                        escaped_row.append(field)
+                
+                csv_data.append(','.join(escaped_row))
+                
+        elif report_type == 'revenue':
+            # Headers for revenue report
+            headers = ["Date", "Number of Bookings", "Revenue"]
+            
+            # Get daily revenue data
+            cursor.execute("""
+                SELECT 
+                    DATE(b.start_time) as date,
+                    COUNT(b.booking_id) as bookings,
+                    COALESCE(SUM(CASE WHEN b.payment_status = 'paid' THEN b.amount ELSE 0 END), 0) as revenue
+                FROM bookings b
+                WHERE b.start_time BETWEEN %s AND %s
+                GROUP BY DATE(b.start_time)
+                ORDER BY date
+            """, (start_date, end_date))
+            
+            daily_revenue = cursor.fetchall()
+            csv_data.append(','.join(headers))
+            
+            # Add summary row
+            total_bookings = sum(day['bookings'] for day in daily_revenue)
+            total_revenue = sum(float(day['revenue']) for day in daily_revenue)
+            days_diff = (end_date - start_date).days or 1  # Avoid division by zero
+            avg_daily_revenue = total_revenue / days_diff
+            
+            csv_data.append(f"Summary,{total_bookings},{total_revenue:.2f}")
+            csv_data.append(f"Average Daily Revenue,,{avg_daily_revenue:.2f}")
+            csv_data.append("")  # Empty line before daily data
+            
+            # Add daily data
+            for day in daily_revenue:
+                # Format date with leading apostrophe for Excel
+                if hasattr(day['date'], 'strftime'):
+                    date_str = f"'{day['date'].strftime('%m-%d-%Y')}'"
+                else:
+                    date_str = f"'{day['date']}'"
+                revenue = f"{float(day['revenue']):.2f}"
+                csv_data.append(f"{date_str},{day['bookings']},{revenue}")
+                
+        elif report_type == 'occupancy':
+            # Headers for occupancy report
+            headers = ["Location", "Total Bookings", "Hours Occupied", "Occupancy Rate (%)"]
+            
+            # Get occupancy data
+            cursor.execute("""
+                SELECT p.location,
+                       COUNT(b.booking_id) as total_bookings,
+                       SUM(TIMESTAMPDIFF(HOUR, b.start_time, b.end_time)) as hours,
+                       (COUNT(b.booking_id) * 100 / 
+                        (SELECT COUNT(*) FROM parking_spots)) as occupancy_rate
+                FROM parking_spots p
+                LEFT JOIN bookings b ON p.spot_id = b.spot_id AND 
+                                       b.start_time BETWEEN %s AND %s AND
+                                       (b.status = 'confirmed' OR b.status = 'pending')
+                GROUP BY p.location
+                ORDER BY total_bookings DESC
+            """, (start_date, end_date))
+            
+            occupancy_data = cursor.fetchall()
+            csv_data.append(','.join(headers))
+            
+            # Calculate statistics for summary
+            if occupancy_data:
+                occupancy_rates = [spot.get('occupancy_rate', 0) or 0 for spot in occupancy_data]
+                avg_occupancy = sum(occupancy_rates) / len(occupancy_rates)
+                peak_occupancy = max(occupancy_rates)
+                total_hours = sum(spot['hours'] or 0 for spot in occupancy_data)
+                
+                # Add summary data
+                csv_data.append(f"Average Occupancy Rate,,,{avg_occupancy:.1f}%")
+                csv_data.append(f"Peak Occupancy Rate,,,{peak_occupancy:.1f}%")
+                csv_data.append(f"Total Hours Occupied,,{total_hours},")
+                csv_data.append("")  # Empty line before location data
+            
+            # Add location data
+            for spot in occupancy_data:
+                hours = spot['hours'] or 0
+                rate = f"{float(spot['occupancy_rate'] or 0):.1f}"
+                csv_data.append(f"{spot['location']},{spot['total_bookings']},{hours},{rate}")
+        
+        else:
+            flash(f'Unsupported report type: {report_type}', 'error')
+            return redirect(url_for('generate_report'))
+            
+    except Exception as e:
+        flash(f'Error generating report: {str(e)}', 'error')
+        return redirect(url_for('generate_report'))
+        
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+    
+    # Create response with CSV data
+    csv_content = '\n'.join(csv_data)
+    response = app.response_class(
+        response=csv_content,
+        status=200,
+        mimetype='text/csv'
+    )
+    response.headers["Content-Disposition"] = f"attachment; filename={filename}"
+    return response
+
+# Main entry point
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)
