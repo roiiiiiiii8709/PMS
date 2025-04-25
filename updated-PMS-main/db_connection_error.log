@@ -17,3 +17,7 @@
 2025-04-15 22:48:58.980159: Failed to connect to MySQL after 3 attempts. Last error: 2002: Can't connect to local MySQL server through socket '%-.100s' (%s) (Warning: not all arguments converted during string formatting)
 2025-04-15 22:58:39.747151: Failed to connect to MySQL after 3 attempts. Last error: 2002: Can't connect to local MySQL server through socket '%-.100s' (%s) (Warning: not all arguments converted during string formatting)
 2025-04-15 22:59:19.882892: Failed to connect to MySQL after 3 attempts. Last error: 2002: Can't connect to local MySQL server through socket '%-.100s' (%s) (Warning: not all arguments converted during string formatting)
+2025-04-24 16:43:42.886308: Failed to connect to MySQL after 3 attempts. Last error: 2002: Can't connect to local MySQL server through socket '%-.100s' (%s) (Warning: not all arguments converted during string formatting)
+2025-04-24 16:43:44.128484: Failed to connect to MySQL after 3 attempts. Last error: 2002: Can't connect to local MySQL server through socket '%-.100s' (%s) (Warning: not all arguments converted during string formatting)
+2025-04-24 16:43:45.981267: Failed to connect to MySQL after 3 attempts. Last error: 2002: Can't connect to local MySQL server through socket '%-.100s' (%s) (Warning: not all arguments converted during string formatting)
+2025-04-24 16:44:13.953953: Failed to connect to MySQL after 3 attempts. Last error: 2002: Can't connect to local MySQL server through socket '%-.100s' (%s) (Warning: not all arguments converted during string formatting)

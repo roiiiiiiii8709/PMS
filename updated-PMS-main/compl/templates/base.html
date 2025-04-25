@@ -19,11 +19,11 @@
             <ul>
                 <li><a href="/"><i class="fas fa-home fa-sm" style="width: 16px; text-align: center; margin-right: 5px;"></i> Home</a></li>
                 {% if 'username' in session %}
-                    {% if session.role == 'user' %}
+                    {% if session.user_type == 'user' %}
                         <li><a href="{{ url_for('user_dashboard') }}"><i class="fas fa-tachometer-alt fa-sm" style="width: 16px; text-align: center; margin-right: 5px;"></i> Dashboard</a></li>
-                    {% elif session.role == 'staff' %}
+                    {% elif session.user_type == 'staff' %}
                         <li><a href="{{ url_for('staff_dashboard') }}"><i class="fas fa-clipboard-list fa-sm" style="width: 16px; text-align: center; margin-right: 5px;"></i> Dashboard</a></li>
-                    {% elif session.role == 'admin' %}
+                    {% elif session.user_type == 'admin' %}
                         <li><a href="{{ url_for('admin_dashboard') }}"><i class="fas fa-user-shield fa-sm" style="width: 16px; text-align: center; margin-right: 5px;"></i> Dashboard</a></li>
                     {% endif %}
                     <li><a href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt fa-sm" style="width: 16px; text-align: center; margin-right: 5px;"></i> Log out ({{ session.username }})</a></li>

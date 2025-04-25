@@ -123,10 +123,10 @@ function validateBookingForm(event) {
         isValid = false;
     }
     
-    // Validate booking duration (max 24 hours)
+    // Validate booking duration (max 72 hours / 3 days)
     const durationHours = (endTime - startTime) / (1000 * 60 * 60);
-    if (durationHours > 24) {
-        errorMessages.push('Booking duration cannot exceed 24 hours');
+    if (durationHours > 72) {
+        errorMessages.push('Booking duration cannot exceed 72 hours (3 days)');
         isValid = false;
     }
     

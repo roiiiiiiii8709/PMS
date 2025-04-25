@@ -4,6 +4,20 @@
 <div style="max-width: 800px; margin: 0 auto; padding: 20px;">
     <h2 style="color: #4CAF50; margin-bottom: 20px;">User Profile</h2>
     
+    <script>
+    function togglePasswordVisibility(inputId) {
+        var input = document.getElementById(inputId);
+        var button = document.querySelector(`button[data-target="${inputId}"]`);
+        if (input.type === "password") {
+            input.type = "text";
+            button.innerHTML = '<i class="fa fa-eye-slash" style="color: #666;"></i> Hide';
+        } else {
+            input.type = "password";
+            button.innerHTML = '<i class="fa fa-eye" style="color: #666;"></i> Show';
+        }
+    }
+    </script>
+    
     <div style="background: white; border-radius: 5px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
         <form method="POST" action="{{ url_for('user_profile') }}" style="display: flex; flex-direction: column; gap: 15px;">
             <div>
@@ -18,22 +32,37 @@
             
             <div>
                 <label for="phone" style="display: block; margin-bottom: 5px;">Phone Number:</label>
-                <input type="tel" id="phone" name="phone" value="{{ user.phone }}" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                <input type="tel" id="phone" name="phone" value="{{ user.phone }}" maxlength="11" pattern="\d{11}" title="Enter exactly 11 digits" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
             </div>
             
             <div>
                 <label for="current_password" style="display: block; margin-bottom: 5px;">Current Password (required to save changes):</label>
-                <input type="password" id="current_password" name="current_password" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                <div style="position: relative; display: flex; align-items: center;">
+                    <input type="password" id="current_password" name="current_password" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <button type="button" onclick="togglePasswordVisibility('current_password')" data-target="current_password" style="position: absolute; right: 10px; background: none; border: none; cursor: pointer;">
+                        <i class="fa fa-eye" style="color: #666;"></i> Show
+                    </button>
+                </div>
             </div>
             
             <div>
                 <label for="new_password" style="display: block; margin-bottom: 5px;">New Password (leave blank to keep current):</label>
-                <input type="password" id="new_password" name="new_password" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                <div style="position: relative; display: flex; align-items: center;">
+                    <input type="password" id="new_password" name="new_password" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <button type="button" onclick="togglePasswordVisibility('new_password')" data-target="new_password" style="position: absolute; right: 10px; background: none; border: none; cursor: pointer;">
+                        <i class="fa fa-eye" style="color: #666;"></i> Show
+                    </button>
+                </div>
             </div>
             
             <div>
                 <label for="confirm_password" style="display: block; margin-bottom: 5px;">Confirm New Password:</label>
-                <input type="password" id="confirm_password" name="confirm_password" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                <div style="position: relative; display: flex; align-items: center;">
+                    <input type="password" id="confirm_password" name="confirm_password" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <button type="button" onclick="togglePasswordVisibility('confirm_password')" data-target="confirm_password" style="position: absolute; right: 10px; background: none; border: none; cursor: pointer;">
+                        <i class="fa fa-eye" style="color: #666;"></i> Show
+                    </button>
+                </div>
             </div>
             
             <div style="display: flex; gap: 10px; margin-top: 10px;">
@@ -44,3 +73,14 @@
     </div>
 </div>
 {% endblock %}
+
+<script>
+    function togglePasswordVisibility(inputId) {
+        var input = document.getElementById(inputId);
+        if (input.type === "password") {
+            input.type = "text";
+        } else {
+            input.type = "password";
+        }
+    }
+</script>

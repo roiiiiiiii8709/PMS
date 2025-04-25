@@ -73,7 +73,7 @@
             <a href="{{ url_for('register') }}" class="btn" style="margin-right: 1rem;">Register Now</a>
             <a href="{{ url_for('login') }}" class="btn btn-outline">Login</a>
         {% else %}
-            <a href="{{ url_for(session.role + '_dashboard') }}" class="btn">Go to Dashboard</a>
+            <a href="{{ url_for(session.user_type + '_dashboard') }}" class="btn">Go to Dashboard</a>
         {% endif %}
     </div>
 </div>

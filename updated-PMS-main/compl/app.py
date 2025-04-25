@@ -10,7 +10,53 @@ from db import get_db_connection
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'  # Replace with your actual secret key if different
 
+# Import authentication routes
+from auth_routes import register_routes
+
+# Register authentication routes
+register_routes(app)
+
 # Function to normalize payment method to match database ENUM values exactly
+# Create password_resets table if it doesn't exist
+def create_tables():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Create password_resets table if it doesn't exist
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS password_resets (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                email VARCHAR(100) NOT NULL,
+                token VARCHAR(100) NOT NULL,
+                user_type ENUM('user', 'staff', 'admin') NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX (token)
+            )
+        """)
+        
+        # Create user_activity_log table if it doesn't exist
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_activity_log (
+                log_id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                action_type VARCHAR(50) NOT NULL,
+                action_details TEXT,
+                booking_id INT,
+                action_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(user_id)
+            )
+        """)
+        
+        conn.commit()
+    except Exception as e:
+        print(f"Error creating tables: {str(e)}")
+    finally:
+        cursor.close()
+        conn.close()
+
+# Call create_tables function to ensure necessary tables exist
+create_tables()
+
 def normalize_payment_method(payment_method):
     """Ensures payment method matches database ENUM values (cash, gcash, credit_card)
     This prevents 'Data truncated for column' errors.
@@ -155,126 +201,78 @@ def home():
 # Login Route
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    error = None
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        user_type = request.form.get('role', 'user')  # Changed from 'user_type' to 'role' to match form field
-        
-        # Set login time to measure performance - ensure it's timezone naive
-        login_start = datetime.now().replace(tzinfo=None)
-        
-        conn = None
-        cursor = None
-        try:
-            # Get database connection with improved timeout handling
-            conn = get_db_connection()
-            if not conn:
-                flash('Database connection error. Please try again later or contact support.', 'error')
-                return render_template('auth/login.html', error="Database connection failed. Please try again later.")
-                
-            cursor = conn.cursor(dictionary=True)
-            
-            # Force user to select appropriate role for their account type
-            if user_type == 'user':
-                cursor.execute("SELECT user_id, username, password FROM users WHERE username = %s", (username,))
-                user = cursor.fetchone()
-                if user and user['password'] == password:  # In real app, use password hashing
-                    session['user_id'] = user['user_id']
-                    session['username'] = user['username']
-                    session['role'] = 'user'
-                    session['user_type'] = 'user'  # For backward compatibility
-                    session['login_time'] = login_start.strftime("%Y-%m-%d %H:%M:%S")
-                    return redirect(url_for('user_dashboard'))
-                else:
-                    error = "Invalid username or password for User account"
-            elif user_type == 'staff':
-                cursor.execute("SELECT staff_id, username, password FROM staff WHERE username = %s", (username,))
-                staff = cursor.fetchone()
-                if staff and staff['password'] == password:  # In real app, use password hashing
-                    session['staff_id'] = staff['staff_id']
-                    session['username'] = staff['username']
-                    session['role'] = 'staff'
-                    session['user_type'] = 'staff'  # For backward compatibility
-                    session['login_time'] = login_start.strftime("%Y-%m-%d %H:%M:%S")
-                    return redirect(url_for('staff_dashboard'))
-                else:
-                    error = "Invalid username or password for Staff account"
-            elif user_type == 'admin':
-                cursor.execute("SELECT admin_id, username, password FROM admins WHERE username = %s", (username,))
-                admin = cursor.fetchone()
-                if admin and admin['password'] == password:  # In real app, use password hashing
-                    session['admin_id'] = admin['admin_id']
-                    session['username'] = admin['username']
-                    session['role'] = 'admin'
-                    session['user_type'] = 'admin'  # For backward compatibility
-                    # Store login time in session as string to avoid timezone issues
-                    session['login_time'] = login_start.strftime("%Y-%m-%d %H:%M:%S")
-                    # Initialize last_expired_check to prevent immediate check on dashboard load
-                    session['last_expired_check'] = login_start.strftime("%Y-%m-%d %H:%M:%S")
-                    return redirect(url_for('admin_dashboard'))
-                else:
-                    error = "Invalid username or password for Admin account"
-        except Exception as e:
-            error = f"Login error: {str(e)}"
-            print(f"Login exception: {str(e)}")
-        finally:
-            if cursor:
-                cursor.close()
-            if conn:
-                conn.close()
-    
-    return render_template('auth/login.html', error=error)
-
-# Register Route
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    error = None
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        email = request.form.get('email')
-        phone = request.form.get('phone')
+        user_type = request.form.get('role')
+        if not user_type:
+            flash('Please select a role to login.', 'error')
+            return render_template('auth/login.html', forgot_password=True)
         
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         
-        # Check if username already exists
-        cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
-        existing_user = cursor.fetchone()
+        table_name = ''
+        session_key = ''
+        redirect_route = ''
         
-        if existing_user:
-            error = "Username already exists"
+        if user_type == 'user':
+            table_name = 'users'
+            session_key = 'user_id'
+            redirect_route = 'user_dashboard'
+        elif user_type == 'staff':
+            table_name = 'staff'
+            session_key = 'staff_id'
+            redirect_route = 'staff_dashboard'
+        elif user_type == 'admin':
+            table_name = 'admins'
+            session_key = 'admin_id'
+            redirect_route = 'admin_dashboard'
         else:
-            try:
-                cursor.execute(
-                    "INSERT INTO users (username, password, email, phone) VALUES (%s, %s, %s, %s)",
-                    (username, password, email, phone)  # In real app, hash the password
-                )
-                conn.commit()
-                flash('Registration successful! Please login.', 'success')
-                return redirect(url_for('login'))
-            except Exception as e:
-                conn.rollback()
-                error = f"Registration failed: {str(e)}"
+            flash('Invalid user type', 'error')
+            return render_template('auth/login.html')
         
-        cursor.close()
-        conn.close()
+        try:
+            # Using parameterized query to prevent SQL injection
+            cursor.execute(f"SELECT * FROM {table_name} WHERE username = %s AND password = %s", (username, password))
+            user = cursor.fetchone()
+            
+            if user:
+                session.clear()
+                session[session_key] = user[f'{user_type}_id']
+                session['username'] = user['username']
+                session['user_type'] = user_type
+                
+                # Update any expired bookings
+                update_expired_bookings()
+                
+                return redirect(url_for(redirect_route))
+            else:
+                flash('Invalid username or password', 'error')
+        except Exception as e:
+            flash(f'Error: {str(e)}', 'error')
+        finally:
+            cursor.close()
+            conn.close()
     
-    return render_template('auth/register.html', error=error)
+    return render_template('auth/login.html', forgot_password=True)
+
+# Register Route - Redirects to user registration by default
+@app.route('/register', methods=['GET'])
+def register():
+    return redirect(url_for('register_user'))
 
 # Logout Route
 @app.route('/logout')
 def logout():
     session.clear()
-    flash('You have been logged out.', 'info')
+    flash('You have been logged out successfully.', 'info')
     return redirect(url_for('login'))
 
 # User Dashboard
 @app.route('/user/dashboard')
 def user_dashboard():
     if 'user_id' not in session:
-        flash('Please login to access this page.', 'error')
         return redirect(url_for('login'))
     
     conn = None
@@ -325,7 +323,6 @@ def user_dashboard():
 @app.route('/user/create_booking', methods=['POST'])
 def create_booking():
     if 'user_id' not in session:
-        flash('Please login to make a booking.', 'error')
         return redirect(url_for('login'))
     
     spot_id = request.form.get('spot_id')
@@ -381,8 +378,13 @@ def create_booking():
             flash('This Spot is Already Booked for That Day. Try Another Spot.', 'error')
             return redirect(url_for('user_dashboard'))
         
-        # Calculate hours and amount
+        # Calculate hours and check if exceeds 72 hours (3 days)
         duration = (end_datetime - start_datetime).total_seconds() / 3600
+        if duration > 72:
+            flash('Booking duration cannot exceed 3 days', 'error')
+            return redirect(url_for('user_dashboard'))
+        
+        # Calculate hours and amount
         amount = Decimal(duration) * Decimal(spot['price_per_hour'])
         
         # Create booking - ensuring status is within allowed ENUM values
@@ -510,174 +512,139 @@ def user_history():
     return render_template('user/history.html', bookings=bookings)
 
 # Cancel Booking
-@app.route('/user/cancel_booking/<int:booking_id>')
+@app.route('/cancel_booking/<int:booking_id>')
 def cancel_booking(booking_id):
     if 'user_id' not in session:
-        flash('Please login to cancel a booking.', 'error')
         return redirect(url_for('login'))
     
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
+    
+    # Check if booking exists and belongs to the user
+    cursor.execute("SELECT * FROM bookings WHERE booking_id = %s AND user_id = %s", (booking_id, session['user_id']))
+    booking = cursor.fetchone()
+    
+    if not booking:
+        flash('Booking not found or you do not have permission to cancel it', 'error')
+        return redirect(url_for('user_dashboard'))
+    
+    # Check if the booking can be cancelled (only pending bookings can be cancelled)
+    if booking['status'] != 'pending':
+        flash('Only pending bookings can be cancelled', 'error')
+        return redirect(url_for('user_dashboard'))
+    
     try:
-        cursor.execute("SELECT * FROM bookings WHERE booking_id = %s AND user_id = %s", (booking_id, session['user_id']))
-        booking = cursor.fetchone()
-        if not booking or booking['status'] != 'pending':
-            flash('Invalid booking or cannot be cancelled.', 'error')
-        else:
-            cursor.execute("UPDATE bookings SET status = 'cancelled' WHERE booking_id = %s", (booking_id,))
-            cursor.execute("UPDATE parking_spots SET status = 'available' WHERE spot_id = %s", (booking['spot_id'],))
-            
-            # Add history entry for the cancelled booking
-            cursor.execute("""
-                INSERT INTO staff_activity_log (staff_id, action_type, action_details, booking_id)
-                VALUES (%s, %s, %s, %s)
-            """, (0, 'cancel', f"Booking #{booking_id} cancelled by user", booking_id))
-            
-            conn.commit()
-            flash('Booking cancelled successfully.', 'success')
+        # Update booking status to cancelled
+        cursor.execute("UPDATE bookings SET status = 'cancelled' WHERE booking_id = %s", (booking_id,))
+        
+        # Update parking spot status if needed
+        cursor.execute("UPDATE parking_spots SET status = 'available' WHERE spot_id = %s", (booking['spot_id'],))
+        
+        # Use user_activity_log instead of staff_activity_log to avoid foreign key constraint error
+        cursor.execute("""
+            INSERT INTO user_activity_log (user_id, action_type, action_details, booking_id)
+            VALUES (%s, %s, %s, %s)
+        """, (session['user_id'], 'cancel', f"Booking #{booking_id} cancelled by user", booking_id))
+        
+        # Add a transaction record for the cancellation
+        cursor.execute("""
+            INSERT INTO transactions (booking_id, payment_method, amount)
+            VALUES (%s, %s, %s)
+        """, (booking_id, 'cash', 0.00))
+        
+        conn.commit()
+        flash('Booking cancelled successfully', 'success')
     except Exception as e:
         conn.rollback()
         flash(f'Error cancelling booking: {str(e)}', 'error')
     finally:
         cursor.close()
         conn.close()
+    
     return redirect(url_for('user_dashboard'))
 
 # Staff Dashboard
 @app.route('/staff/dashboard')
 def staff_dashboard():
     if 'staff_id' not in session:
-        flash('Please login as staff to access this page.', 'error')
         return redirect(url_for('login'))
     
-    # Update expired bookings first
-    updated_count = update_expired_bookings()
-    if updated_count > 0:
-        flash(f'Updated {updated_count} expired bookings and made spots available.', 'info')
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
     
-    conn = None
-    cursor = None
-    pending_bookings = []
-    stats = {}
-    parking_spots = []
+    # Fetch pending bookings - include bookings with status 'pending' or 'pending_payment'
+    cursor.execute("""
+        SELECT b.*, u.username, u.email, p.location, p.price_per_hour
+        FROM bookings b
+        JOIN users u ON b.user_id = u.user_id
+        JOIN parking_spots p ON b.spot_id = p.spot_id
+        WHERE b.status = 'pending' OR b.status = 'pending_payment'
+        ORDER BY b.booking_id DESC
+    """)
+    
+    pending_bookings = cursor.fetchall()
+    
+    # Get payment details for each booking
+    cursor.execute("""
+        SELECT t.*, b.booking_id
+        FROM transactions t
+        JOIN bookings b ON t.booking_id = b.booking_id
+        WHERE b.status = 'pending' OR b.status = 'pending_payment'
+    """)
+    
+    payments = cursor.fetchall()
     payment_details = {}
+    for payment in payments:
+        payment_details[payment['booking_id']] = payment
     
-    try:
-        # Get database connection with improved timeout handling
-        conn = get_db_connection()
-        if not conn:
-            flash('Database connection error. Unable to load dashboard data.', 'error')
-            return render_template('admin/dashboard.html', 
-                                  spots=[], 
-                                  spot_bookings={},
-                                  active_bookings={},
-                                  history_bookings={})
-                
-        cursor = conn.cursor(dictionary=True)
-        
-        # Fetch pending bookings with user information
-        cursor.execute("""
-            SELECT b.*, u.username, u.email, p.location, p.price_per_hour
-            FROM bookings b
-            JOIN users u ON b.user_id = u.user_id
-            JOIN parking_spots p ON b.spot_id = p.spot_id
-            WHERE b.status = 'pending'
-            ORDER BY b.start_time ASC  -- Show nearest upcoming bookings first
-        """)
-        pending_bookings = cursor.fetchall()
-        
-        # Process bookings to check for conflicts
-        for booking in pending_bookings:
-            # Check if spot is currently occupied
-            cursor.execute("""
-                SELECT COUNT(*) as count FROM bookings 
-                WHERE spot_id = %s AND status = 'entry'
-            """, (booking['spot_id'],))
-            result = cursor.fetchone()
-            booking['spot_is_occupied'] = result['count'] > 0
-            
-            # Check for time conflicts with confirmed bookings
-            cursor.execute("""
-                SELECT COUNT(*) as count FROM bookings 
-                WHERE spot_id = %s AND status = 'confirmed'
-                AND ((start_time <= %s AND end_time >= %s) OR 
-                     (start_time <= %s AND end_time >= %s) OR
-                     (start_time >= %s AND end_time <= %s))
-            """, (booking['spot_id'], booking['start_time'], booking['start_time'], 
-                 booking['end_time'], booking['end_time'], booking['start_time'], booking['end_time']))
-            result = cursor.fetchone()
-            booking['has_time_conflict'] = result['count'] > 0
-        
-        # Get statistics
-        cursor.execute("SELECT COUNT(*) as total FROM bookings")
-        total_bookings = cursor.fetchone()['total']
-        
-        # Use same criteria as the pending_bookings query
-        cursor.execute("""
-            SELECT COUNT(*) as pending FROM bookings 
-            WHERE (status = 'pending' OR status IS NULL OR status = '')
-            AND status != 'confirmed'
-            AND status != 'cancelled'
-            AND status != 'entry'
-            AND status != 'exited'
-        """)
-        pending_count = cursor.fetchone()['pending']
-        
-        cursor.execute("SELECT COUNT(*) as confirmed FROM bookings WHERE status = 'confirmed'")
-        confirmed_bookings = cursor.fetchone()['confirmed']
-        
-        cursor.execute("SELECT COUNT(*) as parked FROM bookings WHERE status = 'entry'")
-        parked_vehicles = cursor.fetchone()['parked']
-        
-        cursor.execute("SELECT COUNT(*) as available FROM parking_spots WHERE status = 'available'")
-        available_spots = cursor.fetchone()['available']
-        
-        cursor.execute("SELECT COUNT(*) as total FROM parking_spots")
-        total_spots = cursor.fetchone()['total']
-        
-        cursor.execute("SELECT SUM(amount) as total FROM bookings WHERE payment_status = 'paid'")
-        result = cursor.fetchone()
-        total_revenue = result['total'] if result['total'] else 0
-        
-        # Get parking spots
-        cursor.execute("SELECT * FROM parking_spots ORDER BY spot_id")
-        parking_spots = cursor.fetchall()
-        
-        # Get payment details for quick view
-        cursor.execute("""
-            SELECT t.*, b.booking_id
-            FROM transactions t
-            RIGHT JOIN bookings b ON t.booking_id = b.booking_id
-        """)
-        payments = cursor.fetchall()
-        
-        for payment in payments:
-            # Skip null entries from RIGHT JOIN
-            if payment['booking_id'] is not None:
-                payment_details[payment['booking_id']] = payment
-        
-        # Compile statistics
-        stats = {
-            'total_bookings': total_bookings,
-            'pending_bookings': pending_count,
-            'confirmed_bookings': confirmed_bookings,
-            'parked_vehicles': parked_vehicles,
-            'available_spots': available_spots,
-            'total_spots': total_spots,
-            'total_revenue': total_revenue
-        }
-        
-    except Exception as e:
-        flash(f'Error loading dashboard: {str(e)}', 'error')
+    # Calculate stats for the dashboard
+    # Get total bookings
+    cursor.execute("SELECT COUNT(*) as count FROM bookings")
+    total_bookings = cursor.fetchone()['count']
     
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
+    # Get pending bookings count
+    cursor.execute("SELECT COUNT(*) as count FROM bookings WHERE status = 'pending' OR status = 'pending_payment'")
+    pending_count = cursor.fetchone()['count']
     
-    return render_template('staff/dashboard.html', pending_bookings=pending_bookings, 
-                          stats=stats, parking_spots=parking_spots, payment_details=payment_details)
+    # Get confirmed bookings count
+    cursor.execute("SELECT COUNT(*) as count FROM bookings WHERE status = 'confirmed'")
+    confirmed_count = cursor.fetchone()['count']
+    
+    # Get parked vehicles count (using confirmed bookings as proxy since is_parked column doesn't exist)
+    cursor.execute("SELECT COUNT(*) as count FROM bookings WHERE status = 'confirmed'")
+    parked_count = cursor.fetchone()['count']
+    
+    # Get parking spots information
+    cursor.execute("SELECT COUNT(*) as count FROM parking_spots")
+    total_spots = cursor.fetchone()['count']
+    
+    # Count all spots as available since status column doesn't exist
+    cursor.execute("SELECT COUNT(*) as count FROM parking_spots")
+    available_spots = cursor.fetchone()['count']
+    
+    # Get total revenue (without filtering by status since it doesn't exist)
+    cursor.execute("SELECT COALESCE(SUM(amount), 0) as total FROM transactions")
+    total_revenue = cursor.fetchone()['total']
+    
+    # Create stats dictionary
+    stats = {
+        'total_bookings': total_bookings,
+        'pending_bookings': pending_count,
+        'confirmed_bookings': confirmed_count,
+        'parked_vehicles': parked_count,
+        'total_spots': total_spots,
+        'available_spots': available_spots,
+        'total_revenue': format(total_revenue, '.2f')
+    }
+    
+    # Fetch all parking spots for the overview section
+    cursor.execute("SELECT * FROM parking_spots ORDER BY spot_id")
+    parking_spots = cursor.fetchall()
+    
+    cursor.close()
+    conn.close()
+    
+    return render_template('staff/dashboard.html', pending_bookings=pending_bookings, payment_details=payment_details, stats=stats, parking_spots=parking_spots)
 
 # Staff - Verify Booking
 @app.route('/staff/verify_booking')
@@ -1904,7 +1871,7 @@ def approve_booking(booking_id):
             
         # Check if the booking status is not in a pending state
         # (pending, NULL, or empty status are all considered pending)
-        if booking['status'] not in ['pending', None, ''] or \
+        if booking['status'] not in ['pending', 'pending_payment', None, ''] or \
            booking['status'] in ['confirmed', 'cancelled', 'entry', 'exited']:
             flash('This booking is not pending approval.', 'error')
             return redirect(url_for('staff_dashboard'))
@@ -1970,7 +1937,7 @@ def decline_booking(booking_id):
             
         # Check if the booking status is not in a pending state
         # (pending, NULL, or empty status are all considered pending)
-        if booking['status'] not in ['pending', None, ''] or \
+        if booking['status'] not in ['pending', 'pending_payment', None, ''] or \
            booking['status'] in ['confirmed', 'cancelled', 'entry', 'exited']:
             flash('This booking is not pending approval.', 'error')
             return redirect(url_for('staff_dashboard'))
