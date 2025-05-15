@@ -9,28 +9,31 @@
     
     <!-- Stats Overview -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-8" style="margin-bottom: 4rem;">
-        <div class="card flex flex-col items-center">
+        <div class="card flex flex-col items-center cursor-pointer" onclick="openParkingModal()" id="available-spots-card">
             <div class="flex items-center justify-center" style="width: 64px; height: 64px; background-color: rgba(37, 99, 235, 0.1); border-radius: 50%; margin-bottom: 1rem; display: flex; align-items: center; justify-content: center;">
                 <i class="fas fa-car" style="color: var(--primary); font-size: 1.5rem; display: block; text-align: center;"></i>
             </div>
             <h3 style="color: var(--dark); font-size: 2rem; font-weight: 700; margin: 0.5rem 0;">{{ available_spots }}</h3>
             <p style="color: var(--secondary); margin: 0;">Available Spots</p>
+            <button class="btn btn-sm mt-2" style="background-color: var(--primary); color: white;">View Slots</button>
         </div>
         
-        <div class="card flex flex-col items-center">
+        <div class="card flex flex-col items-center cursor-pointer" onclick="openTotalSpotsModal()" id="total-spots-card">
             <div class="flex items-center justify-center" style="width: 64px; height: 64px; background-color: rgba(16, 185, 129, 0.1); border-radius: 50%; margin-bottom: 1rem; display: flex; align-items: center; justify-content: center;">
                 <i class="fas fa-parking" style="color: var(--success); font-size: 1.5rem; display: block; text-align: center;"></i>
             </div>
             <h3 style="color: var(--dark); font-size: 2rem; font-weight: 700; margin: 0.5rem 0;">{{ total_spots }}</h3>
             <p style="color: var(--secondary); margin: 0;">Total Spots</p>
+            <button class="btn btn-sm mt-2" style="background-color: var(--success); color: white;">View All Spots</button>
         </div>
         
-        <div class="card flex flex-col items-center">
+        <div class="card flex flex-col items-center cursor-pointer" onclick="openTodayBookingsModal()" id="today-bookings-card">
             <div class="flex items-center justify-center" style="width: 64px; height: 64px; background-color: rgba(245, 158, 11, 0.1); border-radius: 50%; margin-bottom: 1rem; display: flex; align-items: center; justify-content: center;">
                 <i class="fas fa-calendar-check" style="color: var(--warning); font-size: 1.5rem; display: block; text-align: center;"></i>
             </div>
             <h3 style="color: var(--dark); font-size: 2rem; font-weight: 700; margin: 0.5rem 0;">{{ todays_bookings }}</h3>
             <p style="color: var(--secondary); margin: 0;">Today's Bookings</p>
+            <button class="btn btn-sm mt-2" style="background-color: var(--warning); color: white;">View Bookings</button>
         </div>
     </div>
     
@@ -76,5 +79,277 @@
             <a href="{{ url_for(session.user_type + '_dashboard') }}" class="btn">Go to Dashboard</a>
         {% endif %}
     </div>
+    
+    <!-- Parking Slots Modal -->
+    <div id="parkingSlotsModal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);">
+        <div class="modal-content" style="background-color: #fefefe; margin: 10% auto; padding: 20px; border-radius: 8px; width: 80%; max-width: 800px; box-shadow: 0 5px 15px rgba(0,0,0,0.2);">
+            <span class="close" onclick="closeParkingModal()" style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+            <h2 style="color: var(--primary); margin-bottom: 1.5rem;">Available Parking Spots</h2>
+            
+            <!-- Parking Lot Visualization -->
+            <div class="parking-lot-visualization" style="margin-bottom: 2rem; background-color: #f5f5f5; border-radius: 8px; padding: 20px; position: relative;">
+                <h3 style="margin-bottom: 1rem; color: var(--dark); text-align: center;">Parking Lot Overview</h3>
+                <div style="background-color: #333; color: white; text-align: center; padding: 5px; margin-bottom: 15px; border-radius: 4px;">ENTRANCE/EXIT</div>
+                
+                <div class="parking-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;">
+                    {% for spot in all_spots %}
+                        {% set status_color = 'green' if spot.status == 'occupied' else ('orange' if spot.status == 'reserved' else 'red') %}
+                        {% set status_text = spot.status|capitalize %}
+                        <div class="parking-spot" 
+                             data-id="{{ spot.spot_id }}" 
+                             data-status="{{ spot.status }}" 
+                             data-location="{{ spot.location }}" 
+                             data-price="{{ spot.price_per_hour }}"
+                             style="
+                                background-color: {{ status_color }}; 
+                                border-radius: 8px; 
+                                padding: 10px; 
+                                text-align: center; 
+                                font-weight: bold; 
+                                color: white; 
+                                cursor: pointer;
+                                position: relative;
+                                height: 60px;
+                                display: flex;
+                                flex-direction: column;
+                                justify-content: center;
+                                align-items: center;
+                                transition: transform 0.2s, box-shadow 0.2s;
+                             "
+                             onmouseover="this.style.transform='scale(1.05)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.2)';"
+                             onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='none';"
+                             onclick="showSpotDetails({{ spot.spot_id }}, '{{ spot.status }}', '{{ spot.location }}', {{ spot.price_per_hour }})">
+                            <span>{{ spot.spot_id }}</span>
+                            <span style="font-size: 0.7rem;">{{ status_text }}</span>
+                        </div>
+                    {% endfor %}
+                </div>
+                
+                <div style="margin-top: 20px; display: flex; justify-content: center; gap: 20px;">
+                    <div style="display: flex; align-items: center;">
+                        <div style="width: 20px; height: 20px; background-color: red; border-radius: 4px; margin-right: 5px;"></div>
+                        <span>Available</span>
+                    </div>
+                    <div style="display: flex; align-items: center;">
+                        <div style="width: 20px; height: 20px; background-color: orange; border-radius: 4px; margin-right: 5px;"></div>
+                        <span>Reserved</span>
+                    </div>
+                    <div style="display: flex; align-items: center;">
+                        <div style="width: 20px; height: 20px; background-color: green; border-radius: 4px; margin-right: 5px;"></div>
+                        <span>Occupied</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Spot Details Container -->
+            <div id="spotDetailsContainer" style="display: none; margin-bottom: 1.5rem; padding: 15px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                <h3 style="margin-bottom: 0.5rem;">Spot Details</h3>
+                <div id="spotDetails"></div>
+            </div>
+            
+            <div style="text-align: center; margin-top: 1.5rem;">
+                <button onclick="closeParkingModal()" class="btn btn-outline">Close</button>
+                <a href="{{ url_for('user_dashboard') }}" class="btn" style="background-color: var(--primary); color: white; margin-left: 0.5rem;">Go to Dashboard</a>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Total Spots Modal -->
+    <div id="totalSpotsModal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);">
+        <div class="modal-content" style="background-color: #fefefe; margin: 10% auto; padding: 20px; border-radius: 8px; width: 80%; max-width: 800px; box-shadow: 0 5px 15px rgba(0,0,0,0.2);">
+            <span class="close" onclick="closeTotalSpotsModal()" style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+            <h2 style="color: var(--success); margin-bottom: 1.5rem;">All Parking Spots</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {% if all_spots %}
+                    {% for spot in all_spots %}
+                        <div class="parking-slot-card card" style="padding: 0; overflow: hidden;">
+                            <div style="height: 150px; overflow: hidden; position: relative;">
+                                <img src="{{ url_for('static', filename='images/parking_spot_' ~ spot.spot_id ~ '.jpg') }}" 
+                                     data-default-src="{{ url_for('static', filename='images/default_parking.jpg') }}" 
+                                     alt="Parking Spot {{ spot.spot_id }}" 
+                                     class="parking-spot-image"
+                                     style="width: 100%; height: 100%; object-fit: cover;">
+                                <div style="position: absolute; top: 10px; right: 10px; background-color: var(--success); color: white; padding: 5px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: bold;">
+                                    ₱{{ spot.price_per_hour }}/hr
+                                </div>
+                                <div style="position: absolute; top: 10px; left: 10px; background-color: {% if spot.status == 'available' %}var(--success){% elif spot.status == 'reserved' %}var(--warning){% else %}var(--danger){% endif %}; color: white; padding: 5px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: bold;">
+                                    {{ spot.status|capitalize }}
+                                </div>
+                            </div>
+                            <div style="padding: 15px;">
+                                <h3 style="font-weight: 600; margin-bottom: 0.5rem;">Spot #{{ spot.spot_id }}</h3>
+                                <p style="color: var(--secondary); font-size: 0.9rem; margin-bottom: 0.5rem;">{{ spot.location }}</p>
+                                {% if spot.status == 'available' %}
+                                    <a href="{{ url_for('user_dashboard') }}" class="btn btn-sm" style="width: 100%; text-align: center; margin-top: 0.5rem; background-color: var(--success); color: white;">Book Now</a>
+                                {% else %}
+                                    <button disabled class="btn btn-sm" style="width: 100%; text-align: center; margin-top: 0.5rem; background-color: #ccc; color: #666; cursor: not-allowed;">Not Available</button>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="col-span-3 text-center py-8">
+                        <p>No parking spots found.</p>
+                    </div>
+                {% endif %}
+            </div>
+            
+            <div style="text-align: center; margin-top: 1.5rem;">
+                <button onclick="closeTotalSpotsModal()" class="btn btn-outline">Close</button>
+                <a href="{{ url_for('user_dashboard') }}" class="btn" style="background-color: var(--success); color: white; margin-left: 0.5rem;">Go to Dashboard</a>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Today's Bookings Modal -->
+    <div id="todayBookingsModal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);">
+        <div class="modal-content" style="background-color: #fefefe; margin: 10% auto; padding: 20px; border-radius: 8px; width: 80%; max-width: 800px; box-shadow: 0 5px 15px rgba(0,0,0,0.2);">
+            <span class="close" onclick="closeTodayBookingsModal()" style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+            <h2 style="color: var(--warning); margin-bottom: 1.5rem;">Today's Bookings</h2>
+            
+            <div class="overflow-x-auto">
+                <table class="w-full" style="border-collapse: collapse;">
+                    <thead>
+                        <tr style="background-color: #f8f9fa; border-bottom: 2px solid #eee;">
+                            <th style="padding: 12px; text-align: left;">Booking ID</th>
+                            <th style="padding: 12px; text-align: left;">Spot</th>
+                            <th style="padding: 12px; text-align: left;">Time</th>
+                            <th style="padding: 12px; text-align: left;">Status</th>
+                            <th style="padding: 12px; text-align: left;">Price</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if todays_booking_details %}
+                            {% for booking in todays_booking_details %}
+                                <tr style="border-bottom: 1px solid #eee;">
+                                    <td style="padding: 12px;">#{{ booking.booking_id }}</td>
+                                    <td style="padding: 12px;">Spot {{ booking.spot_id }} - {{ booking.location }}</td>
+                                    <td style="padding: 12px;">{{ booking.start_time.strftime('%I:%M %p') }} - {{ booking.end_time.strftime('%I:%M %p') }}</td>
+                                    <td style="padding: 12px;">
+                                        <span style="display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; 
+                                        background-color: {% if booking.status == 'confirmed' %}var(--success){% elif booking.status == 'pending' %}var(--warning){% elif booking.status == 'cancelled' %}var(--danger){% else %}var(--primary){% endif %}; color: white;">
+                                            {{ booking.status|capitalize }}
+                                        </span>
+                                    </td>
+                                    <td style="padding: 12px;">₱{{ booking.amount }}</td>
+                                </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="5" style="padding: 20px; text-align: center;">No bookings found for today.</td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+            
+            <div style="text-align: center; margin-top: 1.5rem;">
+                <button onclick="closeTodayBookingsModal()" class="btn btn-outline">Close</button>
+                <a href="{{ url_for('user_dashboard') }}" class="btn" style="background-color: var(--warning); color: white; margin-left: 0.5rem;">Go to Dashboard</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal JavaScript -->
+    <script>
+        // Available Spots Modal
+        function openParkingModal() {
+            document.getElementById('parkingSlotsModal').style.display = 'block';
+            document.body.style.overflow = 'hidden'; // Prevent scrolling when modal is open
+        }
+        
+        function closeParkingModal() {
+            document.getElementById('parkingSlotsModal').style.display = 'none';
+            document.body.style.overflow = 'auto'; // Restore scrolling
+        }
+        
+        // Total Spots Modal
+        function openTotalSpotsModal() {
+            document.getElementById('totalSpotsModal').style.display = 'block';
+            document.body.style.overflow = 'hidden';
+        }
+        
+        function closeTotalSpotsModal() {
+            document.getElementById('totalSpotsModal').style.display = 'none';
+            document.body.style.overflow = 'auto';
+        }
+        
+        // Today's Bookings Modal
+        function openTodayBookingsModal() {
+            document.getElementById('todayBookingsModal').style.display = 'block';
+            document.body.style.overflow = 'hidden';
+        }
+        
+        function closeTodayBookingsModal() {
+            document.getElementById('todayBookingsModal').style.display = 'none';
+            document.body.style.overflow = 'auto';
+        }
+        
+        // Close modals if user clicks outside the modal content
+        window.onclick = function(event) {
+            const parkingModal = document.getElementById('parkingSlotsModal');
+            const totalSpotsModal = document.getElementById('totalSpotsModal');
+            const todayBookingsModal = document.getElementById('todayBookingsModal');
+            
+            if (event.target === parkingModal) {
+                closeParkingModal();
+            } else if (event.target === totalSpotsModal) {
+                closeTotalSpotsModal();
+            } else if (event.target === todayBookingsModal) {
+                closeTodayBookingsModal();
+            }
+        }
+        
+        // Function to show spot details when clicked
+        function showSpotDetails(spotId, status, location, price) {
+            const detailsContainer = document.getElementById('spotDetailsContainer');
+            const detailsContent = document.getElementById('spotDetails');
+            
+            // Set the content
+            let statusColorClass = '';
+            if (status === 'available') {
+                statusColorClass = 'text-red-500';
+            } else if (status === 'reserved') {
+                statusColorClass = 'text-orange-500';
+            } else {
+                statusColorClass = 'text-green-500';
+            }
+            
+            detailsContent.innerHTML = `
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between">
+                    <div>
+                        <p><strong>Spot ID:</strong> ${spotId}</p>
+                        <p><strong>Location:</strong> ${location}</p>
+                        <p><strong>Price:</strong> ₱${price}/hour</p>
+                        <p><strong>Status:</strong> <span class="${statusColorClass}">${status.charAt(0).toUpperCase() + status.slice(1)}</span></p>
+                    </div>
+                    <div class="mt-3 md:mt-0">
+                        ${status === 'available' ? 
+                            `<a href="/user_dashboard" class="btn btn-sm" style="background-color: var(--primary); color: white;">Book Now</a>` : 
+                            `<button class="btn btn-sm btn-disabled" disabled>Not Available</button>`
+                        }
+                    </div>
+                </div>
+            `;
+            
+            // Show the container
+            detailsContainer.style.display = 'block';
+        }
+        
+        // Handle image fallback
+        document.addEventListener('DOMContentLoaded', function() {
+            const parkingImages = document.querySelectorAll('.parking-spot-image');
+            parkingImages.forEach(function(img) {
+                img.addEventListener('error', function() {
+                    // If image fails to load, use the default image
+                    const defaultSrc = this.getAttribute('data-default-src');
+                    if (defaultSrc) {
+                        this.src = defaultSrc;
+                    }
+                });
+            });
+        });
+    </script>
 </div>
 {% endblock %}

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div style="max-width: 800px; margin: 0 auto; padding: 20px;">
+    <h2 style="color: #4CAF50; text-align: center; margin-bottom: 20px;">Payment Confirmation</h2>
+    
+    <div style="background: white; border-radius: 5px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+        <div style="text-align: center; margin-bottom: 30px;">
+            <div class="alert alert-success" style="background-color: #d4edda; color: #155724; padding: 15px; border-radius: 4px; margin-bottom: 20px;">
+                <i class="fas fa-check-circle" style="margin-right: 10px;"></i>
+                Payment submitted successfully. Please wait for staff verification.
+            </div>
+            
+            <h3 style="color: #4CAF50; margin-top: 30px;">Your Booking QR Code</h3>
+            <p style="margin-bottom: 20px;">Show this QR code to the staff upon arrival</p>
+            
+            <div style="display: flex; justify-content: center; margin: 20px 0;">
+                <img src="{{ qr_code_url }}" alt="Booking QR Code" style="width: 200px; height: 200px; border: 1px solid #ddd; padding: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            </div>
+            
+            <div style="margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 4px; display: inline-block; text-align: left;">
+                <h4 style="margin-top: 0; color: #4CAF50;">Booking Details</h4>
+                <p><strong>Booking ID:</strong> {{ booking.booking_id }}</p>
+                <p><strong>Parking Spot:</strong> {{ booking.location }}</p>
+                <p><strong>Start Time:</strong> {{ booking.start_time }}</p>
+                <p><strong>End Time:</strong> {{ booking.end_time }}</p>
+                <p><strong>Duration:</strong> {{ duration }} hours</p>
+                <p><strong>Total Cost:</strong> ₱{{ total_cost }}</p>
+                <p><strong>Payment Method:</strong> {{ payment_method|capitalize }}</p>
+            </div>
+        </div>
+        
+        <div style="margin-top: 30px; text-align: center;">
+            <div style="margin-bottom: 15px;">
+                <a href="{{ url_for('user_dashboard') }}" class="btn" style="background-color: #4CAF50; color: white; padding: 10px 20px; border-radius: 4px; text-decoration: none; margin-right: 10px;">
+                    <i class="fas fa-home" style="margin-right: 5px;"></i> Dashboard
+                </a>
+                
+                <a href="{{ url_for('user_history') }}" class="btn" style="background-color: #007bff; color: white; padding: 10px 20px; border-radius: 4px; text-decoration: none;">
+                    <i class="fas fa-history" style="margin-right: 5px;"></i> Booking History
+                </a>
+            </div>
+            
+            <p style="color: #6c757d; font-size: 0.9rem; margin-top: 15px;">You'll receive an email notification once your payment is verified.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

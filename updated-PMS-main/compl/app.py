@@ -19,9 +19,81 @@ register_routes(app)
 # Function to normalize payment method to match database ENUM values exactly
 # Create password_resets table if it doesn't exist
 def create_tables():
-    conn = get_db_connection()
-    cursor = conn.cursor()
     try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        # Admins table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS admins (
+                admin_id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(100) NOT NULL,
+                password VARCHAR(100) NOT NULL,
+                email VARCHAR(100) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Staff table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS staff (
+                staff_id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(100) NOT NULL,
+                password VARCHAR(100) NOT NULL,
+                email VARCHAR(100) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Users table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(100) NOT NULL,
+                password VARCHAR(100) NOT NULL,
+                email VARCHAR(100) NOT NULL,
+                phone VARCHAR(20),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Password Reset table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS password_resets (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                token VARCHAR(100) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NULL,
+                user_type ENUM('admin', 'staff', 'user') DEFAULT 'user'
+            )
+        """)
+        
+        # Deleted Bookings table - for storing bookings deleted by admin
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS deleted_bookings (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                original_booking_id INT NOT NULL,
+                user_id INT NOT NULL,
+                username VARCHAR(100) NOT NULL,
+                spot_id INT NOT NULL,
+                location VARCHAR(255) NOT NULL,
+                price_per_hour DECIMAL(10,2) NOT NULL,
+                start_time DATETIME,
+                end_time DATETIME,
+                status VARCHAR(50),
+                payment_status VARCHAR(50),
+                amount DECIMAL(10,2),
+                entry_time DATETIME NULL,
+                exit_time DATETIME NULL,
+                admin_id INT NOT NULL,
+                admin_username VARCHAR(100) NOT NULL,
+                deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                booking_data TEXT,
+                FOREIGN KEY (admin_id) REFERENCES admins(admin_id)
+            )
+        """)
+
         # Create password_resets table if it doesn't exist
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS password_resets (
@@ -48,14 +120,57 @@ def create_tables():
         """)
         
         conn.commit()
-    except Exception as e:
-        print(f"Error creating tables: {str(e)}")
-    finally:
         cursor.close()
         conn.close()
+        print("Tables created successfully!")
+    except Exception as e:
+        print(f"Error creating tables: {e}")
+
+# Function to create just the deleted_bookings table
+def create_deleted_bookings_table():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Deleted Bookings table - for storing bookings deleted by admin
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS deleted_bookings (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                original_booking_id INT NOT NULL,
+                user_id INT NOT NULL,
+                username VARCHAR(100) NOT NULL,
+                spot_id INT NOT NULL,
+                location VARCHAR(255) NOT NULL,
+                price_per_hour DECIMAL(10,2) NOT NULL,
+                start_time DATETIME,
+                end_time DATETIME,
+                status VARCHAR(50),
+                payment_status VARCHAR(50),
+                amount DECIMAL(10,2),
+                entry_time DATETIME NULL,
+                exit_time DATETIME NULL,
+                admin_id INT NOT NULL,
+                admin_username VARCHAR(100) NOT NULL,
+                deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                booking_data TEXT
+            )
+        """)
+        
+        conn.commit()
+        print("Deleted bookings table created successfully!")
+    except Exception as e:
+        print(f"Error creating deleted_bookings table: {e}")
+    finally:
+        if 'cursor' in locals() and cursor:
+            cursor.close()
+        if 'conn' in locals() and conn:
+            conn.close()
 
 # Call create_tables function to ensure necessary tables exist
 create_tables()
+
+# Create the deleted_bookings table separately to avoid errors with existing tables
+create_deleted_bookings_table()
 
 def normalize_payment_method(payment_method):
     """Ensures payment method matches database ENUM values (cash, gcash, credit_card)
@@ -119,6 +234,7 @@ def update_expired_bookings():
     conn = None
     cursor = None
     updated_count = 0
+    updated_spots_count = 0
     
     try:
         # Get database connection with improved timeout handling
@@ -141,7 +257,7 @@ def update_expired_bookings():
             UPDATE bookings
             SET status = 'cancelled'
             WHERE end_time < %s 
-              AND (status NOT IN ('cancelled') OR status IS NULL OR status = '')
+              AND (status NOT IN ('cancelled', 'exited') OR status IS NULL OR status = '')
             LIMIT 50
         """, (now,))
         
@@ -178,6 +294,35 @@ def update_expired_bookings():
                         VALUES (0, 'system', 'Booking automatically expired', %s)
                     """, (booking['booking_id'],))
         
+        # NEW: This section fixes spots that are still 'reserved' but their bookings have ended
+        cursor.execute("""
+            SELECT ps.spot_id 
+            FROM parking_spots ps
+            JOIN bookings b ON ps.spot_id = b.spot_id
+            WHERE ps.status = 'reserved'
+            AND b.end_time < %s
+            AND b.status IN ('confirmed', 'cancelled', 'exited')
+        """, (now,))
+        
+        spots_to_update = cursor.fetchall()
+        if spots_to_update:
+            spot_ids = [spot['spot_id'] for spot in spots_to_update]
+            if spot_ids:
+                placeholders = ', '.join(['%s'] * len(spot_ids))
+                cursor.execute(f"""
+                    UPDATE parking_spots 
+                    SET status = 'available' 
+                    WHERE spot_id IN ({placeholders})
+                """, spot_ids)
+                updated_spots_count = cursor.rowcount
+                
+                # Log this special fix
+                if updated_spots_count > 0:
+                    cursor.execute("""
+                        INSERT INTO staff_activity_log (staff_id, action_type, action_details, booking_id)
+                        VALUES (0, 'system', %s, NULL)
+                    """, (f"Fixed {updated_spots_count} spots with incorrect 'reserved' status",))
+        
         conn.commit()
         
     except Exception as e:
@@ -196,7 +341,62 @@ def update_expired_bookings():
 # Home Route
 @app.route('/')
 def home():
-    return render_template('home.html')
+    # Connect to the database
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    # Get total number of parking spots (excluding the archived spot)
+    cursor.execute("SELECT COUNT(*) as total FROM parking_spots WHERE spot_id != -999")
+    total_spots = cursor.fetchone()['total']
+    
+    # Get number of available parking spots
+    cursor.execute("SELECT COUNT(*) as available FROM parking_spots WHERE status = 'available'")
+    available_spots = cursor.fetchone()['available']
+    
+    # Get today's bookings
+    from datetime import datetime, date
+    today = date.today()
+    today_start = datetime.combine(today, datetime.min.time())
+    today_end = datetime.combine(today, datetime.max.time())
+    
+    cursor.execute(
+        "SELECT COUNT(*) as today_bookings FROM bookings WHERE DATE(start_time) = %s", 
+        (today.strftime('%Y-%m-%d'),)
+    )
+    todays_bookings = cursor.fetchone()['today_bookings']
+    
+    # Get available parking spots with location information
+    cursor.execute(
+        "SELECT spot_id, location, price_per_hour FROM parking_spots WHERE status = 'available' LIMIT 6"
+    )
+    available_spot_details = cursor.fetchall()
+    
+    # Get all parking spots for visualization and the total spots modal (excluding the archived spot)
+    cursor.execute(
+        "SELECT spot_id, location, status, price_per_hour FROM parking_spots WHERE spot_id != -999 ORDER BY spot_id"
+    )
+    all_spots = cursor.fetchall()
+    
+    # Get today's bookings with detailed information
+    cursor.execute(
+        """SELECT b.booking_id, b.spot_id, b.start_time, b.end_time, b.status, b.amount, p.location
+           FROM bookings b
+           JOIN parking_spots p ON b.spot_id = p.spot_id
+           WHERE DATE(b.start_time) = %s
+           ORDER BY b.start_time""", 
+        (today.strftime('%Y-%m-%d'),)
+    )
+    todays_booking_details = cursor.fetchall()
+    
+    conn.close()
+    
+    return render_template('home.html', 
+                           total_spots=total_spots, 
+                           available_spots=available_spots, 
+                           todays_bookings=todays_bookings,
+                           available_spot_details=available_spot_details,
+                           all_spots=all_spots,
+                           todays_booking_details=todays_booking_details)
 
 # Login Route
 @app.route('/login', methods=['GET', 'POST'])
@@ -614,12 +814,12 @@ def staff_dashboard():
     cursor.execute("SELECT COUNT(*) as count FROM bookings WHERE status = 'confirmed'")
     parked_count = cursor.fetchone()['count']
     
-    # Get parking spots information
-    cursor.execute("SELECT COUNT(*) as count FROM parking_spots")
+    # Get parking spots information (excluding the archived spot)
+    cursor.execute("SELECT COUNT(*) as count FROM parking_spots WHERE spot_id != -999")
     total_spots = cursor.fetchone()['count']
     
-    # Count all spots as available since status column doesn't exist
-    cursor.execute("SELECT COUNT(*) as count FROM parking_spots")
+    # Count spots with status='available'
+    cursor.execute("SELECT COUNT(*) as count FROM parking_spots WHERE status = 'available'")
     available_spots = cursor.fetchone()['count']
     
     # Get total revenue (without filtering by status since it doesn't exist)
@@ -627,7 +827,7 @@ def staff_dashboard():
     total_revenue = cursor.fetchone()['total']
     
     # Create stats dictionary
-    stats = {
+    stats = {  
         'total_bookings': total_bookings,
         'pending_bookings': pending_count,
         'confirmed_bookings': confirmed_count,
@@ -637,8 +837,8 @@ def staff_dashboard():
         'total_revenue': format(total_revenue, '.2f')
     }
     
-    # Fetch all parking spots for the overview section
-    cursor.execute("SELECT * FROM parking_spots ORDER BY spot_id")
+    # Fetch all parking spots for the overview section (excluding the archived spot)
+    cursor.execute("SELECT * FROM parking_spots WHERE spot_id != -999 ORDER BY spot_id")
     parking_spots = cursor.fetchall()
     
     cursor.close()
@@ -1047,8 +1247,8 @@ def admin_dashboard():
                 
         cursor = conn.cursor(dictionary=True)
         
-        # Get all parking spots
-        cursor.execute("SELECT * FROM parking_spots ORDER BY spot_id")
+        # Get all parking spots, excluding the archived spot
+        cursor.execute("SELECT * FROM parking_spots WHERE spot_id != -999 ORDER BY spot_id")
         parking_spots = cursor.fetchall()
         
         # Get all non-available spots
@@ -1393,6 +1593,8 @@ def delete_spot(spot_id):
         flash('Please login as admin to access this page.', 'error')
         return redirect(url_for('login'))
     
+    # Remove this check as we're no longer using the archived spot approach
+    
     conn = None
     cursor = None
     
@@ -1409,37 +1611,69 @@ def delete_spot(spot_id):
                 
         cursor = conn.cursor(dictionary=True)
         
-        # Check if there are any ACTIVE bookings for this spot
+        # First check for ACTIVE bookings - these are a definite blocker
         cursor.execute("""
-            SELECT COUNT(*) as booking_count 
+            SELECT COUNT(*) as active_count 
             FROM bookings 
             WHERE spot_id = %s 
             AND status IN ('pending', 'confirmed', 'entry')
         """, (spot_id,))
-        booking_count = cursor.fetchone()['booking_count']
+        active_count = cursor.fetchone()['active_count']
         
-        if booking_count > 0:
-            flash('Cannot delete this spot as it has existing bookings.', 'error')
-        else:
-            # Get spot details for the activity log
-            cursor.execute("SELECT * FROM parking_spots WHERE spot_id = %s", (spot_id,))
-            spot = cursor.fetchone()
+        if active_count > 0:
+            flash('Cannot delete this spot as it has active bookings.', 'error')
+            return redirect(url_for('admin_dashboard'))
+        
+        # Check for historical bookings
+        cursor.execute("""
+            SELECT COUNT(*) as historical_count 
+            FROM bookings 
+            WHERE spot_id = %s 
+            AND status IN ('cancelled', 'exited')
+        """, (spot_id,))
+        historical_count = cursor.fetchone()['historical_count']
+        
+        # Get spot details for the activity log
+        cursor.execute("SELECT * FROM parking_spots WHERE spot_id = %s", (spot_id,))
+        spot = cursor.fetchone()
+        
+        if not spot:
+            flash('Parking spot not found.', 'error')
+            return redirect(url_for('admin_dashboard'))
+        
+        if historical_count > 0:
+            # Directly delete historical bookings associated with this spot
+            cursor.execute("""
+                DELETE FROM bookings 
+                WHERE spot_id = %s AND status IN ('cancelled', 'exited')
+            """, (spot_id,))
+            deleted_count = cursor.rowcount
             
-            if spot:
-                # Delete the spot
-                cursor.execute("DELETE FROM parking_spots WHERE spot_id = %s", (spot_id,))
-                
-                # Log admin activity
-                action_details = f"Deleted parking spot - ID: {spot_id}, location: {spot['location']}, price: {spot['price_per_hour']}"
-                cursor.execute("""
-                    INSERT INTO admin_activity_log (admin_id, action_type, action_details, booking_id)
-                    VALUES (%s, %s, %s, %s)
-                """, (session['admin_id'], 'delete', action_details, None))
-                
-                conn.commit()
-                flash('Parking spot deleted successfully!', 'success')
-            else:
-                flash('Parking spot not found.', 'error')
+            # Now we can safely delete the spot
+            cursor.execute("DELETE FROM parking_spots WHERE spot_id = %s", (spot_id,))
+            
+            # Log admin activity
+            action_details = f"Deleted parking spot - ID: {spot_id}, location: {spot['location']}, price: {spot['price_per_hour']}. {deleted_count} historical bookings were permanently deleted."
+            cursor.execute("""
+                INSERT INTO admin_activity_log (admin_id, action_type, action_details, booking_id)
+                VALUES (%s, %s, %s, %s)
+            """, (session['admin_id'], 'delete', action_details, None))
+            
+            conn.commit()
+            flash(f'Parking spot deleted successfully! {deleted_count} historical bookings were permanently deleted.', 'success')
+        else:
+            # No bookings at all, we can simply delete the spot
+            cursor.execute("DELETE FROM parking_spots WHERE spot_id = %s", (spot_id,))
+            
+            # Log admin activity
+            action_details = f"Deleted parking spot - ID: {spot_id}, location: {spot['location']}, price: {spot['price_per_hour']}"
+            cursor.execute("""
+                INSERT INTO admin_activity_log (admin_id, action_type, action_details, booking_id)
+                VALUES (%s, %s, %s, %s)
+            """, (session['admin_id'], 'delete', action_details, None))
+            
+            conn.commit()
+            flash('Parking spot deleted successfully!', 'success')
     
     except Exception as e:
         if conn:
@@ -1767,6 +2001,10 @@ def api_payment_details(booking_id):
     
     return jsonify(response)
 
+import qrcode
+import base64
+from io import BytesIO
+
 @app.route('/user/make_payment/<int:booking_id>', methods=['GET', 'POST'])
 def make_payment(booking_id):
     if 'user_id' not in session:
@@ -1778,9 +2016,10 @@ def make_payment(booking_id):
     try:
         # Get booking details
         cursor.execute("""
-            SELECT b.*, p.location, p.price_per_hour 
+            SELECT b.*, p.location, p.price_per_hour, u.username, u.email 
             FROM bookings b
             JOIN parking_spots p ON b.spot_id = p.spot_id
+            JOIN users u ON b.user_id = u.user_id
             WHERE b.booking_id = %s AND b.user_id = %s
         """, (booking_id, session['user_id']))
         
@@ -1805,6 +2044,7 @@ def make_payment(booking_id):
 
         if request.method == 'POST':
             payment_method = request.form.get('payment_method')
+            payment_number = request.form.get('payment_number', '')
             # Normalize payment method
             normalized_payment_method = normalize_payment_method(payment_method)
             if normalized_payment_method in ['cash', 'gcash', 'credit_card']:
@@ -1819,8 +2059,36 @@ def make_payment(booking_id):
                     (round(total_cost, 2), booking_id)
                 )
                 conn.commit()
-                flash('Payment submitted successfully. Please wait for staff verification.', 'success')
-                return redirect(url_for('user_dashboard'))
+                
+                # Generate QR code with booking info
+                qr_data = f"BOOKING:{booking_id}|USER:{booking['username']}|SPOT:{booking['spot_id']}|" \
+                         f"LOCATION:{booking['location']}|AMOUNT:{round(total_cost, 2)}|" \
+                         f"START:{start_time.strftime('%Y-%m-%d %H:%M')}|END:{end_time.strftime('%Y-%m-%d %H:%M')}|" \
+                         f"PAYMENT:{normalized_payment_method}|STATUS:pending"
+                
+                # Create QR code image
+                qr = qrcode.QRCode(
+                    version=1,
+                    error_correction=qrcode.constants.ERROR_CORRECT_L,
+                    box_size=10,
+                    border=4,
+                )
+                qr.add_data(qr_data)
+                qr.make(fit=True)
+                
+                img = qr.make_image(fill_color="black", back_color="white")
+                buffered = BytesIO()
+                img.save(buffered, format="PNG")
+                img_str = base64.b64encode(buffered.getvalue()).decode()
+                qr_code_url = f"data:image/png;base64,{img_str}"
+                
+                # Render payment confirmation template with QR code
+                return render_template('user/payment_confirmation.html',
+                                    booking=booking,
+                                    duration=round(duration, 1),
+                                    total_cost=round(total_cost, 2),
+                                    payment_method=normalized_payment_method,
+                                    qr_code_url=qr_code_url)
             else:
                 flash('Invalid payment method.', 'error')
         
@@ -2245,6 +2513,262 @@ def download_report():
     )
     response.headers["Content-Disposition"] = f"attachment; filename={filename}"
     return response
+
+
+# Admin - Delete Booking
+@app.route('/admin/delete_booking/<int:booking_id>')
+def admin_delete_booking(booking_id):
+    if 'admin_id' not in session:
+        flash('Please login as admin to access this page.', 'error')
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        # Get the booking details
+        cursor.execute("""
+            SELECT b.*, u.username, p.location, p.price_per_hour
+            FROM bookings b
+            JOIN users u ON b.user_id = u.user_id
+            JOIN parking_spots p ON b.spot_id = p.spot_id
+            WHERE b.booking_id = %s
+        """, (booking_id,))
+        booking = cursor.fetchone()
+        
+        if not booking:
+            flash('Booking not found.', 'error')
+            return redirect(url_for('admin_booking_history'))
+        
+        # Get admin username
+        cursor.execute("SELECT username FROM admins WHERE admin_id = %s", (session['admin_id'],))
+        admin = cursor.fetchone()
+        admin_username = admin['username'] if admin else 'Unknown Admin'
+        
+        # Convert booking data to JSON string for storage
+        # We need to handle datetime objects and Decimal objects which aren't JSON serializable
+        import json
+        from datetime import datetime
+        from decimal import Decimal
+        
+        # Create a copy of the booking dictionary with non-serializable objects converted to strings
+        booking_dict = dict(booking)
+        for key, value in booking_dict.items():
+            if isinstance(value, datetime):
+                booking_dict[key] = value.strftime('%Y-%m-%d %H:%M:%S')
+            elif isinstance(value, Decimal):
+                booking_dict[key] = float(value)  # Convert Decimal to float for JSON serialization
+                
+        booking_json = json.dumps(booking_dict)
+        
+        # Insert into deleted_bookings table
+        cursor.execute("""
+            INSERT INTO deleted_bookings (
+                original_booking_id, user_id, username, spot_id, location, 
+                price_per_hour, start_time, end_time, status, payment_status, 
+                amount, entry_time, exit_time, admin_id, admin_username, booking_data
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            booking['booking_id'], 
+            booking['user_id'], 
+            booking['username'],
+            booking['spot_id'],
+            booking['location'],
+            booking['price_per_hour'],
+            booking['start_time'],
+            booking['end_time'],
+            booking['status'],
+            booking['payment_status'],
+            booking['amount'],
+            booking['entry_time'],
+            booking['exit_time'],
+            session['admin_id'],
+            admin_username,
+            booking_json
+        ))
+        
+        # First, handle transactions related to this booking
+        # We need to handle the foreign key constraint by either:
+        # 1. Delete related transactions
+        cursor.execute("DELETE FROM transactions WHERE booking_id = %s", (booking_id,))
+        
+        # Now we can safely delete the booking
+        cursor.execute("DELETE FROM bookings WHERE booking_id = %s", (booking_id,))
+        
+        # If booking was in use (status 'confirmed' or in use), update spot to available
+        if booking['status'] in ['confirmed', 'entry', 'pending']:
+            cursor.execute("UPDATE parking_spots SET status = 'available' WHERE spot_id = %s", (booking['spot_id'],))
+        
+        conn.commit()
+        flash('Booking deleted and archived successfully!', 'success')
+        
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        flash(f'Error deleting booking: {str(e)}', 'error')
+    
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+    
+    return redirect(url_for('admin_booking_history'))
+
+# Admin - View Deleted Bookings
+@app.route('/admin/deleted_bookings')
+def admin_deleted_bookings():
+    if 'admin_id' not in session:
+        flash('Please login as admin to access this page.', 'error')
+        return redirect(url_for('login'))
+    
+    conn = None
+    cursor = None
+    deleted_bookings = []
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Get all deleted bookings
+        cursor.execute("""
+            SELECT * FROM deleted_bookings
+            ORDER BY deleted_at DESC
+        """)
+        
+        deleted_bookings = cursor.fetchall()
+        
+    except Exception as e:
+        flash(f'Error retrieving deleted bookings: {str(e)}', 'error')
+    
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+    
+    return render_template('admin/deleted_bookings.html', deleted_bookings=deleted_bookings)
+
+# Admin - Restore Deleted Booking
+@app.route('/admin/restore_booking/<int:deleted_id>')
+def admin_restore_booking(deleted_id):
+    if 'admin_id' not in session:
+        flash('Please login as admin to access this page.', 'error')
+        return redirect(url_for('login'))
+    
+    conn = None
+    cursor = None
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Get deleted booking details
+        cursor.execute("SELECT * FROM deleted_bookings WHERE id = %s", (deleted_id,))
+        deleted_booking = cursor.fetchone()
+        
+        if not deleted_booking:
+            flash('Deleted booking not found.', 'error')
+            return redirect(url_for('admin_deleted_bookings'))
+        
+        # Restore the booking
+        cursor.execute("""
+            INSERT INTO bookings (
+                user_id, spot_id, start_time, end_time, status, payment_status, 
+                amount, entry_time, exit_time
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            deleted_booking['user_id'], deleted_booking['spot_id'], 
+            deleted_booking['start_time'], deleted_booking['end_time'], 
+            deleted_booking['status'], deleted_booking['payment_status'], 
+            deleted_booking['amount'], deleted_booking['entry_time'], 
+            deleted_booking['exit_time']
+        ))
+        
+        # Get the newly inserted booking ID
+        cursor.execute("SELECT LAST_INSERT_ID() as new_id")
+        new_booking_id = cursor.fetchone()['new_id']
+        
+        # If was in confirmed status, update spot status if needed
+        if deleted_booking['status'] in ['confirmed', 'pending', 'pending_payment']:
+            cursor.execute(
+                "UPDATE parking_spots SET status = 'reserved' WHERE spot_id = %s AND status = 'available'",
+                (deleted_booking['spot_id'],)
+            )
+        
+        # Log admin activity
+        cursor.execute("""
+            INSERT INTO admin_activity_log (admin_id, action_type, action_details, booking_id)
+            VALUES (%s, %s, %s, %s)
+        """, (session['admin_id'], 'restore', f"Restored booking #{deleted_booking['original_booking_id']} (new ID: {new_booking_id})", new_booking_id))
+        
+        # Remove from deleted_bookings
+        cursor.execute("DELETE FROM deleted_bookings WHERE id = %s", (deleted_id,))
+        
+        conn.commit()
+        flash(f'Booking has been restored (new ID: {new_booking_id}).', 'success')
+        
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        flash(f'Error restoring booking: {str(e)}', 'error')
+    
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+    
+    return redirect(url_for('admin_deleted_bookings'))
+
+# Admin - Permanently Delete Booking
+@app.route('/admin/permanent_delete_booking/<int:deleted_id>')
+def admin_permanent_delete_booking(deleted_id):
+    if 'admin_id' not in session:
+        flash('Please login as admin to access this page.', 'error')
+        return redirect(url_for('login'))
+    
+    conn = None
+    cursor = None
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Get deleted booking details for logging
+        cursor.execute("SELECT original_booking_id FROM deleted_bookings WHERE id = %s", (deleted_id,))
+        deleted_booking = cursor.fetchone()
+        
+        if not deleted_booking:
+            flash('Deleted booking not found.', 'error')
+            return redirect(url_for('admin_deleted_bookings'))
+        
+        original_id = deleted_booking['original_booking_id']
+        
+        # Permanently delete the booking record
+        cursor.execute("DELETE FROM deleted_bookings WHERE id = %s", (deleted_id,))
+        
+        # Log admin activity
+        cursor.execute("""
+            INSERT INTO admin_activity_log (admin_id, action_type, action_details, booking_id)
+            VALUES (%s, %s, %s, %s)
+        """, (session['admin_id'], 'permanent_delete', f"Permanently deleted booking record #{original_id}", None))
+        
+        conn.commit()
+        flash(f'Booking record #{original_id} has been permanently deleted.', 'success')
+        
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        flash(f'Error permanently deleting booking: {str(e)}', 'error')
+    
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+    
+    return redirect(url_for('admin_deleted_bookings'))
 
 # Main entry point
 

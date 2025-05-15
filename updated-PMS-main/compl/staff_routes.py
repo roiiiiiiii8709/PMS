@@ -97,6 +97,13 @@ def register_staff_routes(app):
                 VALUES (%s, %s, %s, %s)
             """, (session['staff_id'], 'approve', f"Approved booking #{booking_id}", booking_id))
             
+            # Count available spots after update for dashboard refresh
+            cursor.execute("SELECT COUNT(*) as count FROM parking_spots WHERE status = 'available'")
+            available_count = cursor.fetchone()['count']
+            
+            # Store the count in session for immediate display
+            session['available_spots_count'] = available_count
+            
             conn.commit()
             flash(f'Booking #{booking_id} has been approved successfully.', 'success')
             

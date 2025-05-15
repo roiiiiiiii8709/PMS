@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <h2 class="title">Deleted Bookings History</h2>
+    
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Deleted Bookings</h3>
+            <div>
+                <a href="{{ url_for('admin_booking_history') }}" class="back-link">
+                    <i class="fas fa-list"></i> Regular Booking History
+                </a>
+                <a href="{{ url_for('admin_dashboard') }}" class="back-link ml-3">
+                    <i class="fas fa-arrow-left"></i> Back to Dashboard
+                </a>
+            </div>
+        </div>
+        
+        {% if deleted_bookings %}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Booking ID</th>
+                        <th>User</th>
+                        <th>Parking Spot</th>
+                        <th>Date Range</th>
+                        <th>Status</th>
+                        <th>Deleted By</th>
+                        <th>Deleted On</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for booking in deleted_bookings %}
+                        <tr class="{% if loop.index % 2 == 0 %}row-striped{% endif %}">
+                            <td>#{{ booking.original_booking_id }}</td>
+                            <td>{{ booking.username }}</td>
+                            <td>{{ booking.location }} (Spot #{{ booking.spot_id }})</td>
+                            <td>{{ booking.start_time.strftime('%m/%d/%Y %H:%M') if booking.start_time else 'Unknown' }} - {{ booking.end_time.strftime('%m/%d/%Y %H:%M') if booking.end_time else 'Unknown' }}</td>
+                            <td>
+                                <span class="badge {% if booking.status == 'cancelled' %}badge-warning{% elif booking.status == 'confirmed' %}badge-success{% else %}badge-info{% endif %}">
+                                    {{ booking.status }}
+                                </span>
+                            </td>
+                            <td>{{ booking.admin_username }}</td>
+                            <td>{{ booking.deleted_at.strftime('%m/%d/%Y %H:%M') if booking.deleted_at else 'Unknown' }}</td>
+                            <td>
+                                <a href="{{ url_for('admin_restore_booking', deleted_id=booking.id) }}" 
+                                   class="badge badge-success" 
+                                   onclick="return confirm('Are you sure you want to restore this booking?');">
+                                    Restore
+                                </a>
+                                <a href="{{ url_for('admin_permanent_delete_booking', deleted_id=booking.id) }}" 
+                                   class="badge badge-danger ml-2" 
+                                   onclick="return confirm('WARNING: This will permanently delete this booking record. This action cannot be undone. Continue?');">
+                                    Delete Permanently
+                                </a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="no-activities">
+                <i class="fas fa-trash-alt" style="font-size: 48px; color: #ddd; margin-bottom: 15px;"></i>
+                <p>No deleted bookings found.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+    .container {
+        padding: 20px;
+    }
+    .title {
+        color: #4CAF50;
+        margin-bottom: 20px;
+    }
+    .card {
+        background: white;
+        border-radius: 5px;
+        padding: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+    }
+    .card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+    .card-title {
+        margin: 0;
+        color: #4CAF50;
+    }
+    .back-link {
+        color: #4CAF50;
+        text-decoration: none;
+    }
+    .ml-3 {
+        margin-left: 15px;
+    }
+    .table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .table th, .table td {
+        padding: 10px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+    }
+    .table th {
+        background-color: #f9f9f9;
+        font-weight: bold;
+    }
+    .row-striped {
+        background-color: #f5f5f5;
+    }
+    .badge {
+        padding: 5px 10px;
+        border-radius: 3px;
+        font-size: 12px;
+        font-weight: bold;
+        text-transform: uppercase;
+        text-decoration: none;
+        display: inline-block;
+    }
+    .badge-success {
+        background-color: #4CAF50;
+        color: white;
+    }
+    .badge-info {
+        background-color: #2196F3;
+        color: white;
+    }
+    .badge-warning {
+        background-color: #FF9800;
+        color: white;
+    }
+    .badge-danger {
+        background-color: #f44336;
+        color: white;
+    }
+    .no-activities {
+        text-align: center;
+        padding: 30px;
+        color: #9E9E9E;
+    }
+</style>
+{% endblock %}
